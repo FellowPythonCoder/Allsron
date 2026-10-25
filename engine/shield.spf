@@ -1,0 +1,335 @@
+~~ =====================================================================
+~~  Sreon — Shield
+~~
+~~  The ad and tracker blocker. Rules live in rules/shield.rules in a
+~~  small, readable format. This module reads them and writes the lists
+~~  WebKit's content blocker understands, so blocking happens inside the
+~~  web engine, before a request is ever made: no script runs, no data
+~~  is fetched, nothing is hidden after the fact.
+~~
+~~  Rule lines:
+~~      ||domain.com^            block the domain and every subdomain
+~~      ||domain.com/path        block that path on that domain
+~~      ||domain.com^$third      only when loaded by a different site
+~~      *text*                   block any address containing the text
+~~      ##selector               hide this everywhere
+~~      site.com##selector       hide this on site.com only
+~~      !                        a comment
+~~      [ads]                    which group the following rules belong to
+~~
+~~  Groups ending in -strict apply at Strict and Maximum.
+~~ =====================================================================
+module shield
+
+use std.json
+use std.fs
+use std.hash
+use kit
+use store
+use settings
+
+pub object Rule {
+    kind: Text = "domain"
+    host: Text = ""
+    path: Text = ""
+    third: Bool = false
+    types: [Text] = []
+    selector: Text = ""
+    group: Text = ""
+}
+
+pub object Book {
+    rules: [Rule] = []
+    network: Int = 0
+    cosmetic: Int = 0
+}
+
+fn dots(host: Text) -> Text => host.replace(".", "\\.")
+
+~~ Escape what a content-blocker pattern treats as special.
+fn literal(t: Text) -> Text {
+    var out = ""
+    for c in t.chars() {
+        if c == "." or c == "?" or c == "+" or c == "(" or c == ")" or c == "[" or c == "]" or c == "$" or c == "^" or c == "|" {
+            out = out + "\\" + c
+        } else if c == "*" {
+            out = out + ".*"
+        } else {
+            out = out + c
+        }
+    }
+    give out
+}
+
+pub fn parse(source: Text) -> Book {
+    var book = Book { }
+    var group = "ads"
+    for raw in source.lines() {
+        let line = raw.trim()
+        if line == "" or line.starts_with("!") { skip }
+        if line.starts_with("[") and line.ends_with("]") {
+            group = line.slice(1, line.len() - 1).lower()
+            skip
+        }
+        var rule = Rule { group: group }
+        var body = line
+        let dollar = body.index_of("$")
+        if dollar > 0 and not body.contains("##") {
+            let opts = body.slice(dollar + 1, body.len())
+            body = body.slice(0, dollar)
+            for o in opts.split(",") {
+                let name = o.trim()
+                if name == "third" or name == "third-party" { rule.third = true }
+                else if name != "" { rule.types.push(name) }
+            }
+        }
+        let hash_at = body.index_of("##")
+        if hash_at >= 0 {
+            rule.kind = "cosmetic"
+            rule.host = body.slice(0, hash_at).trim()
+            rule.selector = body.slice(hash_at + 2, body.len()).trim()
+            if rule.selector == "" { skip }
+            book.cosmetic = book.cosmetic + 1
+            book.rules.push(rule)
+            skip
+        }
+        if body.starts_with("||") {
+            body = body.slice(2, body.len())
+            var cut = body.len()
+            for mark in ["^", "/"] {
+                let j = body.index_of(mark)
+                if j >= 0 and j < cut { cut = j }
+            }
+            rule.host = body.slice(0, cut).lower()
+            if body.slice(cut, body.len()).starts_with("/") { rule.path = body.slice(cut, body.len()) }
+            rule.kind = "domain"
+            if rule.host == "" { skip }
+            book.network = book.network + 1
+            book.rules.push(rule)
+            skip
+        }
+        if body.starts_with("*") or body.starts_with("/") {
+            rule.kind = "pattern"
+            rule.path = body
+            book.network = book.network + 1
+            book.rules.push(rule)
+        }
+    }
+    give book
+}
+
+pub fn load() -> Book {
+    let path = store.res_dir() + "/rules/shield.rules"
+    let text = fs.read(path) ?? ""
+    give parse(text)
+}
+
+~~ --------------------------------------------------------- compiling
+fn resource_types(types: [Text]) -> [Any] {
+    var out: [Any] = []
+    for t in types {
+        if t == "script" { out.push("script") }
+        else if t == "image" { out.push("image") }
+        else if t == "frame" or t == "subdocument" { out.push("document") }
+        else if t == "xhr" or t == "fetch" or t == "raw" { out.push("raw") }
+        else if t == "ping" { out.push("ping") }
+        else if t == "media" { out.push("media") }
+        else if t == "style" { out.push("style-sheet") }
+        else if t == "font" { out.push("font") }
+    }
+    give out
+}
+
+fn block_of(rule: Rule) -> Map<Text, Any> {
+    var trigger: Map<Text, Any> = [:]
+    if rule.kind == "domain" {
+        var filter = "^[^:]+://+([^:/]+\\.)?" + dots(rule.host) + "[:/]"
+        if rule.path != "" { filter = "^[^:]+://+([^:/]+\\.)?" + dots(rule.host) + "(:[0-9]+)?" + literal(rule.path) }
+        trigger.set("url-filter", filter)
+    } else {
+        var p = rule.path
+        if p.starts_with("/") and p.ends_with("/") and p.len() > 2 { p = p.slice(1, p.len() - 1) }
+        trigger.set("url-filter", literal(p))
+    }
+    if rule.third { trigger.set("load-type", ["third-party"]) }
+    let kinds = resource_types(rule.types)
+    if kinds.len() > 0 { trigger.set("resource-type", kinds) }
+    var out: Map<Text, Any> = [:]
+    out.set("trigger", trigger)
+    out.set("action", ["type": "block"])
+    give out
+}
+
+fn hide_rule(selectors: [Text], hosts: [Text]) -> Map<Text, Any> {
+    var trigger: Map<Text, Any> = ["url-filter": ".*"]
+    if hosts.len() > 0 {
+        var d: [Any] = []
+        for h in hosts { d.push("*" + h) }
+        trigger.set("if-domain", d)
+    }
+    var out: Map<Text, Any> = [:]
+    out.set("trigger", trigger)
+    out.set("action", ["type": "css-display-none", "selector": selectors.join(", ")])
+    give out
+}
+
+fn allow_rule(sites: [Text]) -> Map<Text, Any> {
+    var d: [Any] = []
+    for s in sites { d.push("*" + s) }
+    var out: Map<Text, Any> = [:]
+    out.set("trigger", ["url-filter": ".*", "if-domain": d])
+    out.set("action", ["type": "ignore-previous-rules"])
+    give out
+}
+
+fn group_enabled(s: Map<Text, Any>, group: Text) -> Bool {
+    var name = group
+    var strict = false
+    if name.ends_with("-strict") {
+        name = name.slice(0, name.len() - 7)
+        strict = true
+    }
+    let level = settings.str(s, "level")
+    if strict and level == "standard" { give false }
+    if name == "ads" { give settings.flag(s, "ads") }
+    if name == "trackers" { give settings.flag(s, "trackers") }
+    if name == "social" { give settings.flag(s, "social") }
+    if name == "cookies" { give settings.flag(s, "cookies") }
+    if name == "annoy" { give settings.flag(s, "annoy") }
+    if name == "video" { give settings.flag(s, "video_ads") }
+    if name == "miners" { give settings.flag(s, "miners") }
+    if name == "max" { give level == "maximum" }
+    give true
+}
+
+pub fn allowed_sites(s: Map<Text, Any>) -> [Text] {
+    var out: [Text] = []
+    for line in settings.str(s, "allow").lines() {
+        var t = line.trim().lower()
+        if t.starts_with("http") { t = kit.host_of(t) }
+        if t.starts_with("www.") { t = t.slice(4, t.len()) }
+        if t != "" { out.push(t) }
+    }
+    give out
+}
+
+pub object Listing {
+    id: Text = ""
+    body: Text = ""
+    count: Int = 0
+}
+
+~~ One list per group, so a list that fails to compile loses only itself.
+pub fn compile(book: Book, s: Map<Text, Any>) -> [Listing] {
+    var out: [Listing] = []
+    if not settings.flag(s, "shield") { give out }
+    let allow = allowed_sites(s)
+    let names = ["ads", "trackers", "social", "cookies", "annoy", "video", "miners"]
+    for name in names {
+        var rules: [Any] = []
+        var generic: [Text] = []
+        var by_host: Map<Text, Any> = [:]
+        var enabled = false
+        for rule in book.rules {
+            var g = rule.group
+            if g.ends_with("-strict") { g = g.slice(0, g.len() - 7) }
+            if g != name { skip }
+            if not group_enabled(s, rule.group) { skip }
+            enabled = true
+            if rule.kind == "cosmetic" {
+                if rule.host == "" { generic.push(rule.selector) }
+                else {
+                    var list: [Text] = []
+                    let have = by_host.get(rule.host)
+                    if have != nil {
+                        let existing: [Text] = have ?? []
+                        list = existing
+                    }
+                    list.push(rule.selector)
+                    by_host.set(rule.host, list)
+                }
+            } else {
+                rules.push(block_of(rule))
+            }
+        }
+        if not enabled { skip }
+        var at = 0
+        while at < generic.len() {
+            rules.push(hide_rule(generic.slice(at, at + 40), []))
+            at = at + 40
+        }
+        for h in by_host.keys() {
+            let sels: [Text] = by_host.get(h) ?? []
+            rules.push(hide_rule(sels, [h]))
+        }
+        if rules.len() == 0 { skip }
+        if allow.len() > 0 { rules.push(allow_rule(allow)) }
+        let body = json.write(rules)
+        out.push(Listing { id: "sreon-" + name + "-" + hash.crc32(body).to_text(), body: body, count: rules.len() })
+    }
+
+    if settings.str(s, "level") == "maximum" {
+        var rules: [Any] = []
+        var t: Map<Text, Any> = ["url-filter": ".*", "load-type": ["third-party"], "resource-type": ["script", "raw", "ping", "media"]]
+        rules.push(["trigger": t, "action": ["type": "block"]])
+        var keep: [Any] = []
+        for host in ["jsdelivr.net", "cdnjs.cloudflare.com", "unpkg.com", "cloudflare.com", "gstatic.com", "recaptcha.net",
+                     "hcaptcha.com", "stripe.com", "stripe.network", "paypal.com", "paypalobjects.com", "bootstrapcdn.com",
+                     "jquery.com", "fontawesome.com", "typekit.net", "vimeo.com", "vimeocdn.com", "youtube.com", "ytimg.com",
+                     "googlevideo.com", "akamaihd.net", "fastly.net", "cloudfront.net", "githubusercontent.com", "github.io",
+                     "wp.com", "wordpress.com", "shopify.com", "shopifycdn.com", "cdn.shopify.com", "apple.com", "icloud.com"] {
+            var rt: Map<Text, Any> = ["url-filter": "^[^:]+://+([^:/]+\\.)?" + dots(host) + "[:/]"]
+            keep.push(["trigger": rt, "action": ["type": "ignore-previous-rules"]])
+        }
+        for k in keep { rules.push(k) }
+        if allow.len() > 0 { rules.push(allow_rule(allow)) }
+        let body = json.write(rules)
+        out.push(Listing { id: "sreon-max-" + hash.crc32(body).to_text(), body: body, count: rules.len() })
+    }
+
+    ~~ the user's own rules
+    let mine = parse(settings.str(s, "custom_rules").replace("\\n", "\n"))
+    if mine.rules.len() > 0 {
+        var rules: [Any] = []
+        for rule in mine.rules {
+            if rule.kind == "cosmetic" {
+                rules.push(hide_rule([rule.selector], if rule.host == "" { [] } else { [rule.host] }))
+            } else {
+                rules.push(block_of(rule))
+            }
+        }
+        let body = json.write(rules)
+        out.push(Listing { id: "sreon-mine-" + hash.crc32(body).to_text(), body: body, count: rules.len() })
+    }
+    give out
+}
+
+~~ ------------------------------------------------- scripts for pages
+~~ Two small scripts that run in every page when asked: the privacy
+~~ signal and the video-ad skipper. Their text lives in ui/.
+pub fn per_site_off(s: Map<Text, Any>, host: Text) -> Bool {
+    if not settings.flag(s, "shield") { give true }
+    var h = host
+    if h.starts_with("www.") { h = h.slice(4, h.len()) }
+    for a in allowed_sites(s) {
+        if h == a or h.ends_with("." + a) { give true }
+    }
+    give false
+}
+
+pub fn toggle_site(s: Map<Text, Any>, host: Text) -> Text {
+    var h = host
+    if h.starts_with("www.") { h = h.slice(4, h.len()) }
+    var kept: [Text] = []
+    var found = false
+    for a in allowed_sites(s) {
+        if a == h { found = true } else { kept.push(a) }
+    }
+    if not found { kept.push(h) }
+    give kept.join("\n")
+}
+
+~~ What the Shield is made of, in words.
+pub fn summary(book: Book) -> Text {
+    give book.network.to_text() + " network rules · " + book.cosmetic.to_text() + " page cleaners"
+}

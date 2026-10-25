@@ -1,0 +1,217 @@
+~~ =====================================================================
+~~  Sreon — kit
+~~
+~~  Small things every other module needs: escaping text for a page,
+~~  reading values out of the JSON that arrives from the window, and
+~~  taking addresses apart.
+~~ =====================================================================
+module kit
+
+use std.json
+use std.time
+use std.hash
+
+const VERSION = "1.1.0"
+pub fn version() -> Text => VERSION
+pub fn name() -> Text => "Sreon"
+
+~~ ------------------------------------------------------------ escaping
+pub fn esc(t: Text) -> Text {
+    if not (t.contains("&") or t.contains("<") or t.contains(">") or t.contains("\"")) { give t }
+    give t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+}
+
+~~ For a value that sits inside an attribute that holds JSON.
+pub fn jattr(v: Any) -> Text => esc(json.write(v))
+
+pub fn js_text(t: Text) -> Text {
+    give "\"" + t.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\""
+}
+
+~~ ------------------------------------------------------ reading JSON
+pub fn gt(m: Map<Text, Any>, key: Text) -> Text {
+    let v = m.get(key)
+    if v == nil { give "" }
+    give to_text(v ?? "")
+}
+
+pub fn gt_or(m: Map<Text, Any>, key: Text, fallback: Text) -> Text {
+    let v = m.get(key)
+    if v == nil { give fallback }
+    give to_text(v ?? "")
+}
+
+pub fn gn(m: Map<Text, Any>, key: Text, fallback: Num) -> Num {
+    let v = m.get(key)
+    if v == nil { give fallback }
+    let t = to_text(v ?? "")
+    give t.to_num() ?? fallback
+}
+
+pub fn gi(m: Map<Text, Any>, key: Text, fallback: Int) -> Int {
+    let v = m.get(key)
+    if v == nil { give fallback }
+    let t = to_text(v ?? "")
+    let n = t.to_num() ?? to_num(fallback)
+    give to_int(n)
+}
+
+pub fn gb(m: Map<Text, Any>, key: Text, fallback: Bool) -> Bool {
+    let v = m.get(key)
+    if v == nil { give fallback }
+    let t = to_text(v ?? "")
+    if t == "true" or t == "1" { give true }
+    if t == "false" or t == "0" or t == "" { give false }
+    give fallback
+}
+
+pub fn gm(m: Map<Text, Any>, key: Text) -> Map<Text, Any> {
+    let v = m.get(key)
+    if v == nil { give [:] }
+    let out: Map<Text, Any> = v ?? [:]
+    give out
+}
+
+pub fn gl(m: Map<Text, Any>, key: Text) -> [Any] {
+    let v = m.get(key)
+    if v == nil { give [] }
+    let out: [Any] = v ?? []
+    give out
+}
+
+~~ ---------------------------------------------------------- addresses
+pub fn scheme_of(url: Text) -> Text {
+    let i = url.index_of("://")
+    if i < 0 { give "" }
+    give url.slice(0, i).lower()
+}
+
+~~ everything between scheme:// and the next / ? or #
+pub fn host_of(url: Text) -> Text {
+    let i = url.index_of("://")
+    if i < 0 { give "" }
+    var rest = url.slice(i + 3, url.len())
+    var cut = rest.len()
+    for mark in ["/", "?", "#"] {
+        let j = rest.index_of(mark)
+        if j >= 0 and j < cut { cut = j }
+    }
+    rest = rest.slice(0, cut)
+    let at = rest.index_of("@")
+    if at >= 0 { rest = rest.slice(at + 1, rest.len()) }
+    let colon = rest.index_of(":")
+    if colon >= 0 { rest = rest.slice(0, colon) }
+    give rest.lower()
+}
+
+pub fn site_of(url: Text) -> Text {
+    let h = host_of(url)
+    if h.starts_with("www.") { give h.slice(4, h.len()) }
+    give h
+}
+
+pub fn path_of(url: Text) -> Text {
+    let i = url.index_of("://")
+    if i < 0 { give "" }
+    let rest = url.slice(i + 3, url.len())
+    let j = rest.index_of("/")
+    if j < 0 { give "/" }
+    var p = rest.slice(j, rest.len())
+    for mark in ["?", "#"] {
+        let k = p.index_of(mark)
+        if k >= 0 { p = p.slice(0, k) }
+    }
+    give p
+}
+
+pub fn query_of(url: Text) -> Text {
+    let q = url.index_of("?")
+    if q < 0 { give "" }
+    var s = url.slice(q + 1, url.len())
+    let h = s.index_of("#")
+    if h >= 0 { s = s.slice(0, h) }
+    give s
+}
+
+~~ ------------------------------------------------------------- colour
+~~ A hue from any text, so every site gets the same colour every time.
+pub fn hue_of(t: Text) -> Int {
+    let h = hash.fnv64(t)
+    var n = h % 360
+    if n < 0 { n = 0 - n }
+    give n
+}
+
+pub fn initial_of(t: Text) -> Text {
+    var s = t
+    if s.starts_with("www.") { s = s.slice(4, s.len()) }
+    if s.len() == 0 { give "·" }
+    give s.slice(0, 1).upper()
+}
+
+~~ -------------------------------------------------------------- time
+pub fn now_ms() -> Int => to_int(time.now() * 1000.0)
+
+pub fn stamp(seconds: Num, pattern: Text) -> Text => time.format(seconds, pattern)
+
+pub fn ago(seconds: Num) -> Text {
+    let d = time.now() - seconds
+    if d < 60.0 { give "just now" }
+    if d < 3600.0 { give to_int(d / 60.0).to_text() + " min ago" }
+    if d < 86400.0 { give to_int(d / 3600.0).to_text() + " h ago" }
+    if d < 172800.0 { give "yesterday" }
+    give to_int(d / 86400.0).to_text() + " days ago"
+}
+
+~~ ------------------------------------------------------------- misc
+pub fn clamp_i(n: Int, lo: Int, hi: Int) -> Int {
+    if n < lo { give lo }
+    if n > hi { give hi }
+    give n
+}
+
+pub fn num_fmt(n: Num, places: Int) -> Text {
+    var p = 1.0
+    var i = 0
+    while i < places { p = p * 10.0; i = i + 1 }
+    let r = to_num(math_round(n * p)) / p
+    give r.to_text()
+}
+
+fn math_round(n: Num) -> Int {
+    if n >= 0.0 { give to_int(n + 0.5) }
+    give 0 - to_int(0.5 - n)
+}
+
+pub fn pad2(n: Int) -> Text => n.to_text().pad_left(2, "0")
+
+pub fn truncate(t: Text, n: Int) -> Text {
+    if t.len() <= n { give t }
+    give t.slice(0, n - 1) + "…"
+}
+
+pub fn words_of(t: Text) -> [Text] {
+    var out: [Text] = []
+    for w in t.split(" ") {
+        let s = w.trim()
+        if s != "" { out.push(s) }
+    }
+    give out
+}
+
+~~ choose between two texts
+pub fn sel(c: Bool, a: Text, b: Text) -> Text {
+    if c { give a }
+    give b
+}
+
+pub fn sel_i(c: Bool, a: Int, b: Int) -> Int {
+    if c { give a }
+    give b
+}
+
+~~ whole-number division, rounding toward zero
+pub fn idiv(a: Int, b: Int) -> Int {
+    if b == 0 { give 0 }
+    give to_int(to_num(a) / to_num(b))
+}

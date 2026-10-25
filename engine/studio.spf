@@ -1,0 +1,663 @@
+~~ =====================================================================
+~~  Sreon — studio
+~~
+~~  A workshop inside the browser: a code editor with a real compiler
+~~  behind it, a guidebook, a whiteboard and a drawer of tools.
+~~  Studio is drawn here, in SPRFST, like every other page.
+~~ =====================================================================
+module studio
+
+use std.fs
+use std.json
+use std.sys
+use std.time
+use kit
+use store
+use state
+use icons
+use theme
+use settings
+use hl
+use guide
+use board
+use tools
+
+fn starter() -> Text {
+    give r"""~~ Welcome to Studio. Press Run (or ⌘↩) to try this.
+use std.io
+
+object Greeter {
+    name: Text = "world"
+
+    fn hello(self) -> Text => "hello, {self.name}"
+}
+
+fn main() {
+    let g = Greeter { name: "Sreon" }
+    io.say(g.hello())
+
+    for n in [1, 2, 3] {
+        io.say("{n} squared is {n * n}")
+    }
+}
+"""
+}
+
+fn blank() -> Text {
+    give r"""use std.io
+
+fn main() {
+    io.say("hello")
+}
+"""
+}
+
+fn app_starter() -> Text {
+    give r"""~~ A small app. Press Run: a real window opens.
+~~ State (var) lives in the app; text with {holes} redraws by itself.
+use std.io
+
+app "Greeter" {
+    var name = ""
+    var clicks = 0
+
+    window {
+        title: "Greeter"
+        width: 420
+        height: 300
+
+        title "Hello, {name}"
+        field "Your name" {
+            value: name
+            on change(text) {
+                name = text
+            }
+        }
+        button "Wave ({clicks})" {
+            on click {
+                clicks = clicks + 1
+            }
+        }
+        button "Reset" {
+            on click {
+                clicks = 0
+                name = ""
+            }
+        }
+    }
+}
+"""
+}
+
+~~ Saved programs that open a window (they have an `app` block). The dock lists them.
+pub fn my_apps() -> [Text] {
+    var out: [Text] = []
+    var all = fs.list(projects_dir())
+    all = all.sort()
+    for f in all {
+        if not f.ends_with(".spf") { skip }
+        let body = fs.read(projects_dir() + "/" + f) ?? ""
+        if is_app(body) { out.push(f) }
+    }
+    give out
+}
+
+pub fn app_title(f: Text) -> Text => pretty_name(f)
+
+pub fn projects_dir() -> Text => (sys.env("HOME") ?? ".") + "/Documents/Sreon Studio"
+
+fn qp(q: Text, key: Text) -> Text {
+    for pair in q.split("&") {
+        let eq = pair.index_of("=")
+        if eq > 0 and pair.slice(0, eq) == key { give pair.slice(eq + 1, pair.len()).replace("%20", " ").replace("+", " ") }
+    }
+    give ""
+}
+
+fn act_attr(name: Text, args: Map<Text, Any>) -> Text => " data-act=\"" + name + "\" data-a=\"" + kit.jattr(args) + "\""
+
+~~ ------------------------------------------------------------- state
+fn load_state(a: state.App) {
+    if a.studio.get("loaded") != nil { give }
+    let m = store.read_map("studio")
+    a.studio.set("loaded", true)
+    a.studio.set("code", kit.gt_or(m, "code", starter()))
+    a.studio.set("name", kit.gt_or(m, "name", "main.spf"))
+    a.studio.set("read", kit.gl(m, "read"))
+    a.studio.set("chapter", kit.gi(m, "chapter", 0))
+}
+
+fn save_state(a: state.App) {
+    store.write("studio", ["code": kit.gt(a.studio, "code"), "name": kit.gt(a.studio, "name"), "read": kit.gl(a.studio, "read"), "chapter": kit.gi(a.studio, "chapter", 0)])
+}
+
+fn line_count(code: Text) -> Int => code.split("\n").len()
+
+fn gutter(code: Text) -> Text {
+    var s = ""
+    var i = 1
+    let n = line_count(code)
+    while i <= n { s = s + i.to_text() + "\n"; i = i + 1 }
+    give s
+}
+
+fn status_line(code: Text) -> Text => line_count(code).to_text() + " lines · " + code.len().to_text() + " characters"
+
+~~ ------------------------------------------------------------ frame
+fn tab_btn(tab: Text, id: Text, icon: Text, label: Text) -> Text {
+    give "<button class=\"st-tab" + kit.sel(tab == id, " on", "") + "\"" + act_attr("st.tab", ["tab": id]) + ">" + icons.svg(icon) + "<span>" + label + "</span></button>"
+}
+
+fn tabs(tab: Text) -> Text {
+    give tab_btn(tab, "code", "code", "Code") + tab_btn(tab, "guide", "book", "Guidebook") + tab_btn(tab, "board", "board", "Whiteboard") + tab_btn(tab, "tools", "tools", "Tools")
+}
+
+pub fn page(a: state.App, query: Text) -> Text {
+    load_state(a)
+    var tab = qp(query, "tab")
+    if tab == "" { tab = kit.gt_or(a.studio, "tab", "code") }
+    a.studio.set("tab", tab)
+    if qp(query, "tool") != "" { a.studio.set("tool", qp(query, "tool")) }
+    let want = qp(query, "open")
+    if want != "" and not want.contains("/") and not want.contains("..") {
+        let body = fs.read(projects_dir() + "/" + want)
+        if body != nil {
+            a.studio.set("code", body ?? "")
+            a.studio.set("name", want)
+            a.studio.set("out", "")
+            tab = "code"
+            a.studio.set("tab", "code")
+        }
+    }
+    let fs_px = settings.int(a.s, "st_font")
+    var h = "<div class=\"st\" style=\"--ed-fs:" + kit.sel_i(fs_px > 0, fs_px, 14).to_text() + "px;--ed-lh:1.62\">"
+    h = h + "<header class=\"st-h\"><div class=\"st-brand\">" + icons.mark(26) + "<span>Studio</span></div><nav data-region=\"st-tabs\">" + tabs(tab) + "</nav><span class=\"sp\"></span><div class=\"powered\">" + icons.spf_mark(16) + "<span>Powered by <b>SPRFST Language</b></span></div></header>"
+    h = h + "<main data-region=\"st-main\">" + tab_body(a, tab) + "</main></div>"
+    give theme.document(a.s, "studio", "Studio", "studio", "", "<link rel=\"stylesheet\" href=\"sreon://assets/studio.css\">" + h + "<script src=\"sreon://assets/studio.js\"></script>", "")
+}
+
+fn tab_body(a: state.App, tab: Text) -> Text {
+    if tab == "guide" { give guide_view(a) }
+    if tab == "board" { give board.page(a) }
+    if tab == "tools" { give tools_view(a) }
+    give code_view(a)
+}
+
+~~ -------------------------------------------------------------- code
+fn pretty_name(f: Text) -> Text {
+    var n = f
+    if n.ends_with(".spf") { n = n.slice(0, n.len() - 4) }
+    if n.len() > 3 and n.slice(2, 3) == "-" { n = n.slice(3, n.len()) }
+    n = n.replace("-", " ")
+    if n == "" { give f }
+    give n.slice(0, 1).upper() + n.slice(1, n.len())
+}
+
+fn side_files(a: state.App) -> Text {
+    var s = "<div class=\"fs-h\"><span>Your programs</span><button class=\"ib sm\" title=\"New program\"" + act_attr("st.code.new", [:]) + ">" + icons.svg("plus") + "</button><button class=\"ib sm\" title=\"New app (a window with buttons and fields)\"" + act_attr("st.code.newapp", [:]) + ">" + icons.svg("grid") + "</button></div>"
+    var mine: [Text] = []
+    for f in fs.list(projects_dir()) { if f.ends_with(".spf") { mine.push(f) } }
+    mine = mine.sort()
+    if mine.len() == 0 { s = s + "<div class=\"fs-empty\">Save a program and it lands in Documents / Sreon Studio.</div>" }
+    for f in mine {
+        s = s + "<button class=\"fs-i" + kit.sel(f == kit.gt(a.studio, "name"), " on", "") + "\"" + act_attr("st.code.open", ["file": f]) + ">" + icons.svg("file") + "<span>" + kit.esc(f) + "</span></button>"
+    }
+    s = s + "<div class=\"fs-h\" style=\"margin-top:14px\"><span>Examples</span></div>"
+    var ex = fs.list(store.res_dir() + "/examples")
+    ex = ex.sort()
+    for f in ex {
+        if not f.ends_with(".spf") { skip }
+        s = s + "<button class=\"fs-i\"" + act_attr("st.code.example", ["file": f]) + ">" + icons.svg("spark") + "<span>" + kit.esc(pretty_name(f)) + "</span></button>"
+    }
+    give s
+}
+
+fn code_view(a: state.App) -> Text {
+    let code = kit.gt(a.studio, "code")
+    let wrap = settings.flag(a.s, "st_wrap")
+    let lines = settings.flag(a.s, "st_lines")
+    var h = "<div class=\"code-grid\"><aside class=\"fs\" data-region=\"fs\">" + side_files(a) + "</aside>"
+    h = h + "<section class=\"edcol\"><div class=\"ed-bar\"><input id=\"fname\" class=\"fname\" spellcheck=\"false\" value=\"" + kit.esc(kit.gt(a.studio, "name")) + "\" data-input=\"st.code.name\" data-wait=\"250\">"
+    h = h + "<span class=\"sp\"></span>"
+    h = h + "<button class=\"btn sm\" title=\"Tidy the code\"" + act_attr("st.code.fmt", [:]) + " data-from=\"#ed\">" + icons.svg("wrench") + "Format</button>"
+    h = h + "<button class=\"btn sm\" title=\"Look for mistakes\"" + act_attr("st.code.check", [:]) + " data-from=\"#ed\">" + icons.svg("check") + "Check</button>"
+    h = h + "<button class=\"btn sm\" title=\"Save to Documents\"" + act_attr("st.code.save", [:]) + " data-from=\"#ed\">" + icons.svg("download") + "Save</button>"
+    h = h + "<button id=\"runbtn\" class=\"btn pri\" title=\"Run (⌘↩)\"" + act_attr("st.exec.run", ["into": "out"]) + " data-from=\"#ed\" data-also=\"#stdin\">" + icons.svg("play") + "Run</button></div>"
+    h = h + "<div class=\"ed-wrap" + kit.sel(wrap, " wrap", "") + kit.sel(lines, "", " nolines") + "\">"
+    h = h + "<pre id=\"gut\" class=\"ed-gut\" data-region=\"gut\">" + gutter(code) + "</pre>"
+    h = h + "<div id=\"under\" class=\"ed-under\"><pre class=\"ed-hl\" data-region=\"hl\">" + hl.html(code) + "</pre></div>"
+    h = h + "<textarea id=\"ed\" class=\"ed-in\" spellcheck=\"false\" autocapitalize=\"off\" autocorrect=\"off\" data-input=\"st.code.edit\" data-wait=\"90\" data-sync=\"#under,#gut\" data-tabkey=\"" + settings.int(a.s, "st_tab").to_text() + "\">" + kit.esc(code) + "</textarea></div>"
+    h = h + "<div class=\"ed-foot\"><span data-region=\"stat\">" + status_line(code) + "</span><span class=\"sp\"></span><span>SPRFST · UTF-8</span></div>"
+    h = h + "<div class=\"console\"><div class=\"con-h\">" + icons.svg("terminal") + "<span>Output</span><span class=\"sp\"></span><button class=\"ib sm\" title=\"Clear\"" + act_attr("st.out.clear", [:]) + ">" + icons.svg("trash") + "</button></div>"
+    h = h + "<div class=\"con-in\"><label for=\"stdin\">" + icons.svg("terminal") + "<span>Input</span><small>one answer per line, read by io.ask and io.read_line</small></label><textarea id=\"stdin\" spellcheck=\"false\" placeholder=\"Type what the program will ask for\" data-input=\"st.stdin\" data-wait=\"200\">" + kit.esc(kit.gt(a.studio, "stdin")) + "</textarea></div>"
+    h = h + "<div class=\"con-b\" data-region=\"out\">" + kit.sel(kit.gt(a.studio, "out") == "", "<div class=\"con-empty\">Press <kbd>⌘</kbd><kbd>↩</kbd> to run. Output and problems appear here.</div>", kit.gt(a.studio, "out")) + "</div></div></section></div>"
+    give h
+}
+
+~~ ------------------------------------------------- compiler plumbing
+fn run_env() -> Text => "SPRFST_HOME='" + store.res_dir().replace("'", "") + "' NO_COLOR=1 "
+
+fn bin() -> Text => "'" + (sys.env("SREON_SPRFST") ?? "sprfst").replace("'", "") + "'"
+
+fn work_dir(kind: Text) -> Text {
+    let d = store.data_dir() + "/" + kind
+    fs.mkdir(store.data_dir())
+    fs.mkdir(d)
+    give d
+}
+
+fn level_class(l: Text) -> Text => kit.sel(l == "error", "lv-err", kit.sel(l == "warning", "lv-warn", "lv-info"))
+
+fn problems_html(diags: [Any]) -> Text {
+    var errs = 0
+    var warns = 0
+    var items = ""
+    for d in diags {
+        let m: Map<Text, Any> = d
+        let lvl = kit.gt(m, "level")
+        if lvl == "error" { errs = errs + 1 } else { warns = warns + 1 }
+        let line = kit.gi(m, "line", 1)
+        let col = kit.gi(m, "col", 1)
+        var msg = ""
+        for lb in kit.gl(m, "labels") { let lm: Map<Text, Any> = lb; if kit.gb(lm, "primary", false) { msg = kit.gt(lm, "msg") } }
+        var fix = ""
+        for f in kit.gl(m, "fixes") { fix = fix + "<div class=\"prb-fix\">" + icons.svg("bolt") + kit.esc(to_text(f)) + "</div>" }
+        items = items + "<button class=\"prb " + level_class(lvl) + "\" data-goto=\"" + line.to_text() + ":" + col.to_text() + "\"><span class=\"prb-dot\"></span><span class=\"prb-t\"><b>" + kit.esc(kit.gt(m, "title")) + "</b>"
+        if msg != "" { items = items + "<small>" + kit.esc(msg) + "</small>" }
+        items = items + fix + "</span><span class=\"prb-l\">" + kit.gt(m, "code") + " · " + line.to_text() + ":" + col.to_text() + "</span></button>"
+    }
+    var head = "<div class=\"con-sum " + kit.sel(errs > 0, "bad", "ok") + "\">"
+    if errs > 0 { head = head + icons.svg("close") + "<b>" + errs.to_text() + kit.sel(errs == 1, " error", " errors") + "</b>" }
+    else { head = head + icons.svg("check") + "<b>No errors</b>" }
+    if warns > 0 { head = head + "<span>" + warns.to_text() + kit.sel(warns == 1, " warning", " warnings") + "</span>" }
+    give head + "</div><div class=\"prbs\">" + items + "</div>"
+}
+
+pub fn diagnose(code: Text) -> [Any] {
+    let dir = work_dir("run")
+    fs.write(dir + "/main.spf", code)
+    let raw = sys.run("cd '" + dir + "' && " + run_env() + bin() + " check main.spf --json 2>&1")
+    let start = raw.index_of("[")
+    if start < 0 { give [] }
+    let v = json.parse(raw.slice(start, raw.len()))
+    if v == nil { give [] }
+    let l: [Any] = v ?? []
+    give l
+}
+
+fn count_errors(diags: [Any]) -> Int {
+    var n = 0
+    for d in diags { let m: Map<Text, Any> = d; if kit.gt(m, "level") == "error" { n = n + 1 } }
+    give n
+}
+
+fn output_html(body: Text, code: Int, secs: Num, timed_out: Bool, limit: Int) -> Text {
+    var head = "<div class=\"con-sum " + kit.sel(code == 0, "ok", "bad") + "\">"
+    if timed_out { head = head + icons.svg("timer") + "<b>Stopped after " + limit.to_text() + " seconds</b><span>Runaway loop? Change the limit in Settings › Studio.</span>" }
+    else if code == 0 { head = head + icons.svg("check") + "<b>Finished</b><span>" + kit.num_fmt(secs, 2) + " s</span>" }
+    else { head = head + icons.svg("close") + "<b>Exited with code " + code.to_text() + "</b><span>" + kit.num_fmt(secs, 2) + " s</span>" }
+    var lines = ""
+    for l in body.split("\n") { lines = lines + kit.esc(l) + "\n" }
+    give head + "</div><pre class=\"con-pre\">" + lines.trim() + "</pre>"
+}
+
+
+~~ ---------------------------------------------------- live app preview
+~~ An `app` is run with the json backend. Every click or edit is kept as a
+~~ line of "event <id> <name> [payload]"; the app is run again with all of
+~~ them, and the last window it published is drawn here. Same program,
+~~ same events, same window: nothing needs to be kept alive between clicks.
+pub fn is_app(code: Text) -> Bool {
+    if code.starts_with("app ") { give true }
+    give code.contains("\napp \"")
+}
+
+fn app_frame(code: Text, log: Text) -> Text {
+    let dir = work_dir("app")
+    fs.write(dir + "/main.spf", code)
+    fs.write(dir + "/events.txt", log + "quit\n")
+    let raw = sys.run("cd '" + dir + "' && perl -e 'alarm shift; exec @ARGV' 6 env SPRFST_UI=json " + run_env() + bin() + " run main.spf < events.txt 2>&1")
+    let mark = "\u{1e}ui "
+    var last = -1
+    var from = 0
+    while true {
+        let at = raw.slice(from, raw.len()).index_of(mark)
+        if at < 0 { break }
+        last = from + at
+        from = from + at + mark.len()
+    }
+    if last < 0 { give "" }
+    var rest = raw.slice(last + mark.len(), raw.len())
+    let nl = rest.index_of("\n")
+    if nl >= 0 { rest = rest.slice(0, nl) }
+    give rest
+}
+
+fn app_node(index: Map<Text, Any>, id: Int, log: Text) -> Text {
+    let v = index.get(id.to_text())
+    if v == nil { give "" }
+    let n: Map<Text, Any> = v ?? [:]
+    let kind = kit.gt(n, "kind")
+    let label = kit.gt(n, "label")
+    let props: Map<Text, Any> = n.get("props") ?? [:]
+    var kids = ""
+    for c in kit.gl(n, "children") { kids = kids + app_node(index, to_int(to_num(to_text(c))), log) }
+    if kind == "window" { give kids }
+    if kind == "title" or kind == "heading" { give "<div class=\"ap-title\">" + kit.esc(kit.gt_or(props, "text", label)) + "</div>" }
+    if kind == "text" { give "<div class=\"ap-text\">" + kit.esc(kit.gt_or(props, "text", label)) + "</div>" }
+    if kind == "divider" { give "<hr class=\"ap-div\">" }
+    if kind == "button" {
+        give "<button class=\"ap-btn\"" + act_attr("st.app.event", ["id": id, "name": "click", "log": log]) + ">" + kit.esc(kit.gt_or(props, "text", label)) + "</button>"
+    }
+    if kind == "field" or kind == "input" {
+        give "<label class=\"ap-field\"><span>" + kit.esc(label) + "</span><input type=\"text\" value=\"" + kit.esc(kit.gt(props, "value")) + "\" data-change=\"st.app.event\" data-a=\"" + kit.jattr(["id": id, "name": "change", "log": log]) + "\"></label>"
+    }
+    if kind == "toggle" or kind == "check" {
+        let ticked = kit.gt(props, "value") == "true"
+        give "<label class=\"ap-tog\"><input type=\"checkbox\"" + kit.sel(ticked, " checked", "") + " data-change=\"st.app.event\" data-a=\"" + kit.jattr(["id": id, "name": "change", "log": log]) + "\"><i></i><span>" + kit.esc(label) + "</span></label>"
+    }
+    if kind == "list" {
+        var items = ""
+        for it in kit.gl(props, "items") { items = items + "<li>" + kit.esc(to_text(it)) + "</li>" }
+        give "<ul class=\"ap-list\">" + kit.sel(items == "", "<li class=\"ap-empty\">empty</li>", items) + "</ul>"
+    }
+    give "<div class=\"ap-box\">" + kids + "</div>"
+}
+
+fn app_preview(code: Text, log: Text) -> Text {
+    let frame = app_frame(code, log)
+    if frame == "" {
+        give "<div class=\"con-sum bad\">" + icons.svg("close") + "<b>The app did not open a window</b><span>Check that it has an app block with a window inside.</span></div>"
+    }
+    let v = json.parse(frame)
+    if v == nil { give "<div class=\"con-sum bad\">" + icons.svg("close") + "<b>The window could not be read</b></div>" }
+    let m: Map<Text, Any> = v ?? [:]
+    var index: Map<Text, Any> = [:]
+    for nv in kit.gl(m, "nodes") {
+        let nm: Map<Text, Any> = nv
+        index.set(kit.gt(nm, "id"), nm)
+    }
+    let w = kit.clamp_i(kit.gi(m, "width", 420), 260, 640)
+    var h = "<div class=\"con-sum ok\">" + icons.svg("check") + "<b>Live preview</b><span>Click and type. Every action runs your code again.</span></div>"
+    h = h + "<div class=\"ap-win\" style=\"max-width:" + w.to_text() + "px\"><div class=\"ap-bar\"><i></i><i></i><i></i><span>" + kit.esc(kit.gt(m, "title")) + "</span></div><div class=\"ap-body\">" + app_node(index, 0, log) + "</div></div>"
+    give h
+}
+
+~~ Runs in the worker process so a long program never freezes the browser.
+pub fn exec(name: Text, args: Map<Text, Any>) -> state.Reply {
+    let r = state.Reply { }
+    let into = kit.gt_or(args, "into", "out")
+    let code = kit.gt_or(args, "code", kit.gt(args, "value"))
+    if name == "st.exec.run" {
+        let diags = diagnose(code)
+        if count_errors(diags) > 0 {
+            r.region(into, problems_html(diags))
+            r.toast = "Fix the errors first"
+            give r
+        }
+        if is_app(code) {
+            r.region(into, app_preview(code, ""))
+            give r
+        }
+        let limit = kit.clamp_i(settings.int(settings.load(), "st_timeout"), 1, 60)
+        let dir = work_dir("run")
+        fs.write(dir + "/main.spf", code)
+        fs.write(dir + "/stdin.txt", kit.gt(args, "stdin"))
+        let t0 = time.now()
+        let raw = sys.run("cd '" + dir + "' && perl -e 'alarm shift; exec @ARGV' " + limit.to_text() + " env " + run_env() + bin() + " run main.spf < stdin.txt 2>&1; echo \"::exit $?\"")
+        let secs = time.now() - t0
+        var body = raw
+        var status = 0
+        let at = raw.index_of("::exit ")
+        if at >= 0 {
+            body = raw.slice(0, at)
+            status = (raw.slice(at + 7, raw.len()).trim()).to_int() ?? 0
+        }
+        let timed = status == 142 or status == 14
+        var html = ""
+        if status != 0 and not timed and body.contains("error[") { html = problems_html(diags) + "<pre class=\"con-pre\">" + kit.esc(body.trim()) + "</pre>" }
+        else { html = output_html(body, status, secs, timed, limit) }
+        r.region(into, html)
+        give r
+    }
+    give r
+}
+
+~~ ------------------------------------------------------------- guide
+fn guide_nav(a: state.App, cur: Int) -> Text {
+    let read = kit.gl(a.studio, "read")
+    var s = "<div class=\"gd-search\">" + icons.svg("search") + "<input placeholder=\"Search the guidebook\" spellcheck=\"false\" data-input=\"st.guide.find\" data-wait=\"150\"></div>"
+    s = s + "<button class=\"gd-i" + kit.sel(cur == 0, " on", "") + "\"" + act_attr("st.guide.open", ["n": 0]) + ">" + icons.svg("home") + "<span>Start here</span></button>"
+    var last = -1
+    var done = 0
+    for c in guide.chapters() {
+        if c.group != last {
+            last = c.group
+            s = s + "<div class=\"gd-g\" style=\"--h:" + guide.group_hue(c.group).to_text() + "\">" + guide.group_names()[c.group] + "</div>"
+        }
+        let seen = read.contains(c.n)
+        if seen { done = done + 1 }
+        s = s + "<button class=\"gd-i" + kit.sel(cur == c.n, " on", "") + "\" style=\"--h:" + guide.group_hue(c.group).to_text() + "\"" + act_attr("st.guide.open", ["n": c.n]) + "><i class=\"gd-n\">" + kit.sel(seen, icons.svg("check"), kit.pad2(c.n)) + "</i><span>" + kit.esc(c.title) + "</span></button>"
+    }
+    give s
+}
+
+fn guide_home(a: state.App) -> Text {
+    let chs = guide.chapters()
+    let read = kit.gl(a.studio, "read")
+    var h = "<div class=\"gh-hero\"><div class=\"gh-t\"><div class=\"gh-k\">The SPRFST guidebook</div><h1>Learn a language that fits in your head.</h1><p>Thirty-two short chapters. Every example runs right here, so you read a little, press Run, and see it work.</p>"
+    h = h + "<div class=\"gh-b\"><button class=\"btn pri lg\"" + act_attr("st.guide.open", ["n": kit.sel_i(read.len() == 0, 1, kit.clamp_i(kit.gi(a.studio, "chapter", 1), 1, 32))]) + ">" + icons.svg("play") + kit.sel(read.len() == 0, "Start chapter 1", "Continue reading") + "</button><span class=\"muted\">" + read.len().to_text() + " of " + chs.len().to_text() + " chapters read</span></div></div></div>"
+    h = h + "<h2 class=\"gh-h\">How a program runs</h2><div class=\"fig\">" + guide.pipeline_svg() + "</div>"
+    h = h + "<h2 class=\"gh-h\">Pocket reference</h2><div class=\"cheats\">"
+    for c in guide.cheats() {
+        h = h + "<div class=\"cheat\"><div class=\"cheat-t\">" + c[0] + "<button class=\"ib sm\" title=\"Open in editor\"" + act_attr("st.code.load", ["code": c[1]]) + ">" + icons.svg("code") + "</button></div><pre class=\"hl\">" + hl.html(c[1]) + "</pre></div>"
+    }
+    h = h + "</div><h2 class=\"gh-h\">All chapters</h2>"
+    var last = -1
+    for c in chs {
+        if c.group != last {
+            if last >= 0 { h = h + "</div>" }
+            last = c.group
+            h = h + "<div class=\"gh-gn\" style=\"--h:" + guide.group_hue(c.group).to_text() + "\">" + guide.group_names()[c.group] + "</div><div class=\"gh-grid\">"
+        }
+        h = h + "<button class=\"gcard\" style=\"--h:" + guide.group_hue(c.group).to_text() + "\"" + act_attr("st.guide.open", ["n": c.n]) + "><span class=\"gc-n\">" + kit.pad2(c.n) + "</span><b>" + kit.esc(c.title) + "</b><i>" + kit.sel(read.contains(c.n), "Read", "~" + kit.clamp_i(kit.idiv(c.body.len(), 1100), 1, 30).to_text() + " min") + "</i></button>"
+    }
+    give h + "</div>"
+}
+
+fn guide_chapter(a: state.App, n: Int) -> Text {
+    let c = guide.chapter(n)
+    if c.n == 0 { give guide_home(a) }
+    let hue = guide.group_hue(c.group)
+    var h = "<div class=\"gd-hero\" style=\"--h:" + hue.to_text() + "\">" + guide.hero_art(c.n, hue) + "<div class=\"gd-ht\"><span class=\"gd-chip\">" + guide.group_names()[c.group] + " · Chapter " + c.n.to_text() + "</span><h1>" + kit.esc(c.title) + "</h1><span class=\"gd-meta\">About " + kit.clamp_i(kit.idiv(c.body.len(), 1100), 1, 30).to_text() + " min</span></div></div>"
+    h = h + "<div class=\"prose\">" + guide.render(c) + "</div><div class=\"gd-pn\">"
+    if n > 1 { let p = guide.chapter(n - 1); h = h + "<button class=\"pn-b\"" + act_attr("st.guide.open", ["n": n - 1]) + "><small>Previous</small><b>" + kit.esc(p.title) + "</b></button>" } else { h = h + "<span></span>" }
+    if n < 30 { let q = guide.chapter(n + 1); h = h + "<button class=\"pn-b next\"" + act_attr("st.guide.open", ["n": n + 1]) + "><small>Next</small><b>" + kit.esc(q.title) + "</b></button>" }
+    give h + "</div>"
+}
+
+fn guide_view(a: state.App) -> Text {
+    let cur = kit.gi(a.studio, "gview", 0)
+    give "<div class=\"gd\"><nav class=\"gd-nav\" data-region=\"gtoc\">" + guide_nav(a, cur) + "</nav><article class=\"gd-body\" id=\"gbody\" data-region=\"gbody\">" + guide_chapter(a, cur) + "</article></div>"
+}
+
+fn guide_find(q: Text) -> Text {
+    let words = kit.words_of(q.lower())
+    if words.len() == 0 { give "" }
+    var h = "<div class=\"prose\"><h2>Results for “" + kit.esc(q) + "”</h2>"
+    var found = 0
+    for c in guide.chapters() {
+        let low = c.body.lower()
+        var all = true
+        for w in words { if not low.contains(w) { all = false } }
+        if not all { skip }
+        found = found + 1
+        let at = low.index_of(words[0])
+        var snip = c.body.slice(kit.clamp_i(at - 60, 0, c.body.len()), kit.clamp_i(at + 160, 0, c.body.len())).replace("\n", " ").replace("`", "")
+        h = h + "<button class=\"hit\"" + act_attr("st.guide.open", ["n": c.n]) + "><b>" + kit.pad2(c.n) + " · " + kit.esc(c.title) + "</b><span>…" + kit.esc(snip) + "…</span></button>"
+        if found >= 12 { break }
+    }
+    if found == 0 { h = h + "<p class=\"muted\">Nothing matched. Try a shorter word.</p>" }
+    give h + "</div>"
+}
+
+~~ ------------------------------------------------------------- tools
+fn tools_view(a: state.App) -> Text {
+    let id = kit.gt_or(a.studio, "tool", "calc")
+    give "<div class=\"tl\"><nav class=\"tl-nav\" data-region=\"tl-nav\">" + tools.nav(id) + "</nav><section class=\"tl-main\" data-region=\"tool-body\">" + tools.body(a, id) + "</section></div>"
+}
+
+~~ -------------------------------------------------------------- acts
+fn set_tab(a: state.App, r: state.Reply, tab: Text) {
+    a.studio.set("tab", tab)
+    r.region("st-tabs", tabs(tab))
+    r.region("st-main", tab_body(a, tab))
+}
+
+pub fn act(a: state.App, name: Text, args: Map<Text, Any>) -> state.Reply {
+    load_state(a)
+    let r = state.Reply { }
+    if name.starts_with("board.") { give board.act(a, name, args) }
+    if name.starts_with("st.exec.") { give exec(name, args) }
+    if name == "st.copy" { r.do(["do": "copy", "text": kit.gt(args, "text")]); r.toast = "Copied"; give r }
+    if name == "st.tab" { set_tab(a, r, kit.gt(args, "tab")); give r }
+
+    ~~ ---- code
+    if name == "st.code.edit" {
+        let code = kit.gt(args, "value")
+        a.studio.set("code", code)
+        r.region("hl", hl.html(code))
+        r.region("gut", gutter(code))
+        r.region("stat", status_line(code))
+        save_state(a)
+        give r
+    }
+    if name == "st.app.event" {
+        let id = kit.gi(args, "id", 0)
+        var line = "event " + id.to_text() + " " + kit.gt(args, "name")
+        let payload = kit.gt(args, "value").replace("\n", " ")
+        if kit.gt(args, "name") == "change" and kit.gt(args, "value") != "" { line = line + " " + payload }
+        let log = kit.gt(args, "log") + line + "\n"
+        r.region("out", app_preview(kit.gt(a.studio, "code"), log))
+        give r
+    }
+    if name == "st.stdin" { a.studio.set("stdin", kit.gt(args, "value")); save_state(a); give r }
+    if name == "st.code.newapp" {
+        a.studio.set("code", app_starter())
+        a.studio.set("name", "my-app.spf")
+        a.studio.set("out", "")
+        save_state(a)
+        set_tab(a, r, "code")
+        r.toast = "New app ready. Press Run to open its window."
+        give r
+    }
+    if name == "st.code.name" { a.studio.set("name", kit.gt(args, "value")); save_state(a); give r }
+    if name == "st.code.load" or name == "st.code.example" or name == "st.code.open" {
+        var code = kit.gt(args, "code")
+        if name == "st.code.example" {
+            code = fs.read(store.res_dir() + "/examples/" + kit.gt(args, "file")) ?? ""
+            a.studio.set("name", kit.gt(args, "file"))
+        }
+        if name == "st.code.open" {
+            code = fs.read(projects_dir() + "/" + kit.gt(args, "file")) ?? ""
+            a.studio.set("name", kit.gt(args, "file"))
+        }
+        a.studio.set("code", code)
+        a.studio.set("out", "")
+        save_state(a)
+        set_tab(a, r, "code")
+        give r
+    }
+    if name == "st.code.new" {
+        a.studio.set("code", blank())
+        a.studio.set("name", "untitled.spf")
+        a.studio.set("out", "")
+        save_state(a)
+        set_tab(a, r, "code")
+        r.focus = "#ed"
+        give r
+    }
+    if name == "st.code.save" {
+        var code = kit.gt_or(args, "value", kit.gt(a.studio, "code"))
+        a.studio.set("code", code)
+        var file = kit.gt(a.studio, "name").trim()
+        if file == "" { file = "untitled.spf" }
+        if not file.ends_with(".spf") { file = file + ".spf" }
+        a.studio.set("name", file)
+        fs.mkdir((sys.env("HOME") ?? ".") + "/Documents")
+        fs.mkdir(projects_dir())
+        if fs.write(projects_dir() + "/" + file, code) { r.toast = "Saved " + file }
+        else { r.toast = "Couldn't save " + file }
+        r.region("fs", side_files(a))
+        save_state(a)
+        give r
+    }
+    if name == "st.code.fmt" {
+        let code = kit.gt_or(args, "value", kit.gt(a.studio, "code"))
+        let dir = work_dir("fmt")
+        fs.write(dir + "/main.spf", code)
+        sys.run("cd '" + dir + "' && " + run_env() + bin() + " fmt main.spf 2>&1")
+        let out = fs.read(dir + "/main.spf") ?? code
+        a.studio.set("code", out)
+        r.values = ["#ed": out]
+        r.region("hl", hl.html(out))
+        r.region("gut", gutter(out))
+        r.region("stat", status_line(out))
+        r.toast = kit.sel(out == code, "Already tidy", "Formatted")
+        save_state(a)
+        give r
+    }
+    if name == "st.code.check" {
+        let code = kit.gt_or(args, "value", kit.gt(a.studio, "code"))
+        a.studio.set("code", code)
+        r.region("out", problems_html(diagnose(code)))
+        give r
+    }
+    if name == "st.out.clear" { a.studio.set("out", ""); r.region("out", "<div class=\"con-empty\">Output cleared.</div>"); give r }
+
+    ~~ ---- guide
+    if name == "st.guide.open" {
+        let n = kit.gi(args, "n", 0)
+        a.studio.set("gview", n)
+        if n > 0 {
+            a.studio.set("chapter", n)
+            var read = kit.gl(a.studio, "read")
+            if not read.contains(n) { read.push(n); a.studio.set("read", read) }
+            save_state(a)
+        }
+        if kit.gt(a.studio, "tab") != "guide" { set_tab(a, r, "guide"); r.scroll = "#gbody"; give r }
+        r.region("gtoc", guide_nav(a, n))
+        r.region("gbody", guide_chapter(a, n))
+        r.scroll = "#gbody"
+        give r
+    }
+    if name == "st.guide.find" {
+        let q = kit.gt(args, "value")
+        if q.trim() == "" { r.region("gbody", guide_chapter(a, kit.gi(a.studio, "gview", 0))) }
+        else { r.region("gbody", guide_find(q)) }
+        give r
+    }
+
+    ~~ ---- tools
+    if name == "st.tool.pick" {
+        a.studio.set("tool", kit.gt(args, "tool"))
+        r.region("tl-nav", tools.nav(kit.gt(args, "tool")))
+        r.region("tool-body", tools.body(a, kit.gt(args, "tool")))
+        give r
+    }
+    if name == "st.tool.opt" {
+        a.studio.set("tool_opt_" + kit.gt(args, "tool"), kit.gt(args, "opt"))
+        r.region("tool-body", tools.body(a, kit.gt(args, "tool")))
+        give r
+    }
+    if name == "st.tool.run" {
+        let id = kit.gt(args, "tool")
+        let v = kit.gt(args, "value")
+        a.studio.set("tool_in_" + id, v)
+        let d = tools.def_of(id)
+        let opt = kit.gt_or(a.studio, "tool_opt_" + id, tools.first_opt(d))
+        r.region("tool-out", tools.run(id, opt, v))
+        give r
+    }
+    give r
+}

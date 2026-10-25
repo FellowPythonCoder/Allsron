@@ -1,0 +1,191 @@
+~~ =====================================================================
+~~  Sreon — units
+~~
+~~  "5 km in miles", "72 f to c", "2 h to min", "10 gb to mb".
+~~ =====================================================================
+module units
+
+use kit
+use calc
+
+object Unit {
+    kind: Text = ""
+    name: Text = ""
+    names: [Text] = []
+    factor: Num = 1.0
+}
+
+fn u(kind: Text, name: Text, names: [Text], factor: Num) -> Unit {
+    give Unit { kind: kind, name: name, names: names, factor: factor }
+}
+
+fn table() -> [Unit] {
+    var t: [Unit] = []
+    t.push(u("length", "metre", ["m", "meter", "meters", "metre", "metres"], 1.0))
+    t.push(u("length", "kilometre", ["km", "kilometer", "kilometers", "kilometre", "kilometres"], 1000.0))
+    t.push(u("length", "centimetre", ["cm", "centimeter", "centimeters", "centimetre", "centimetres"], 0.01))
+    t.push(u("length", "millimetre", ["mm", "millimeter", "millimeters", "millimetre", "millimetres"], 0.001))
+    t.push(u("length", "micrometre", ["um", "micron", "microns"], 0.000001))
+    t.push(u("length", "nanometre", ["nm", "nanometer", "nanometers"], 0.000000001))
+    t.push(u("length", "mile", ["mi", "mile", "miles"], 1609.344))
+    t.push(u("length", "yard", ["yd", "yard", "yards"], 0.9144))
+    t.push(u("length", "foot", ["ft", "foot", "feet"], 0.3048))
+    t.push(u("length", "inch", ["in", "inch", "inches"], 0.0254))
+    t.push(u("length", "nautical mile", ["nmi", "nauticalmile", "nauticalmiles"], 1852.0))
+    t.push(u("length", "light year", ["ly", "lightyear", "lightyears"], 9460730472580800.0))
+    t.push(u("mass", "kilogram", ["kg", "kilo", "kilos", "kilogram", "kilograms"], 1.0))
+    t.push(u("mass", "gram", ["g", "gram", "grams"], 0.001))
+    t.push(u("mass", "milligram", ["mg", "milligram", "milligrams"], 0.000001))
+    t.push(u("mass", "tonne", ["t", "tonne", "tonnes", "metricton"], 1000.0))
+    t.push(u("mass", "pound", ["lb", "lbs", "pound", "pounds"], 0.45359237))
+    t.push(u("mass", "ounce", ["oz", "ounce", "ounces"], 0.028349523125))
+    t.push(u("mass", "stone", ["st", "stone", "stones"], 6.35029318))
+    t.push(u("volume", "litre", ["l", "liter", "liters", "litre", "litres"], 1.0))
+    t.push(u("volume", "millilitre", ["ml", "milliliter", "milliliters", "millilitre", "millilitres"], 0.001))
+    t.push(u("volume", "cubic metre", ["m3", "cubicmeter", "cubicmeters"], 1000.0))
+    t.push(u("volume", "US gallon", ["gal", "gallon", "gallons"], 3.785411784))
+    t.push(u("volume", "US quart", ["qt", "quart", "quarts"], 0.946352946))
+    t.push(u("volume", "US pint", ["pt", "pint", "pints"], 0.473176473))
+    t.push(u("volume", "US cup", ["cup", "cups"], 0.2365882365))
+    t.push(u("volume", "US fluid ounce", ["floz", "fl"], 0.0295735295625))
+    t.push(u("volume", "tablespoon", ["tbsp", "tablespoon", "tablespoons"], 0.01478676478125))
+    t.push(u("volume", "teaspoon", ["tsp", "teaspoon", "teaspoons"], 0.00492892159375))
+    t.push(u("time", "second", ["s", "sec", "secs", "second", "seconds"], 1.0))
+    t.push(u("time", "millisecond", ["ms", "millisecond", "milliseconds"], 0.001))
+    t.push(u("time", "minute", ["min", "mins", "minute", "minutes"], 60.0))
+    t.push(u("time", "hour", ["h", "hr", "hrs", "hour", "hours"], 3600.0))
+    t.push(u("time", "day", ["d", "day", "days"], 86400.0))
+    t.push(u("time", "week", ["wk", "week", "weeks"], 604800.0))
+    t.push(u("time", "year", ["y", "yr", "yrs", "year", "years"], 31557600.0))
+    t.push(u("speed", "metre per second", ["mps", "m/s"], 1.0))
+    t.push(u("speed", "kilometre per hour", ["kph", "kmh", "km/h"], 0.2777777777778))
+    t.push(u("speed", "mile per hour", ["mph", "mi/h"], 0.44704))
+    t.push(u("speed", "knot", ["kn", "knot", "knots"], 0.514444444))
+    t.push(u("area", "square metre", ["m2", "sqm"], 1.0))
+    t.push(u("area", "square kilometre", ["km2", "sqkm"], 1000000.0))
+    t.push(u("area", "hectare", ["ha", "hectare", "hectares"], 10000.0))
+    t.push(u("area", "acre", ["acre", "acres"], 4046.8564224))
+    t.push(u("area", "square foot", ["ft2", "sqft"], 0.09290304))
+    t.push(u("area", "square mile", ["mi2", "sqmi"], 2589988.110336))
+    t.push(u("data", "byte", ["b", "byte", "bytes"], 1.0))
+    t.push(u("data", "kilobyte", ["kb", "kilobyte", "kilobytes"], 1000.0))
+    t.push(u("data", "megabyte", ["mb", "megabyte", "megabytes"], 1000000.0))
+    t.push(u("data", "gigabyte", ["gb", "gigabyte", "gigabytes"], 1000000000.0))
+    t.push(u("data", "terabyte", ["tb", "terabyte", "terabytes"], 1000000000000.0))
+    t.push(u("data", "kibibyte", ["kib"], 1024.0))
+    t.push(u("data", "mebibyte", ["mib"], 1048576.0))
+    t.push(u("data", "gibibyte", ["gib"], 1073741824.0))
+    t.push(u("data", "bit", ["bit", "bits"], 0.125))
+    t.push(u("data", "megabit", ["mbit", "mbits", "mb/s"], 125000.0))
+    t.push(u("energy", "joule", ["j", "joule", "joules"], 1.0))
+    t.push(u("energy", "kilojoule", ["kj", "kilojoule", "kilojoules"], 1000.0))
+    t.push(u("energy", "calorie", ["cal", "calorie", "calories"], 4.184))
+    t.push(u("energy", "kilocalorie", ["kcal", "kilocalorie", "kilocalories"], 4184.0))
+    t.push(u("energy", "watt hour", ["wh"], 3600.0))
+    t.push(u("energy", "kilowatt hour", ["kwh"], 3600000.0))
+    t.push(u("angle", "degree", ["deg", "degree", "degrees"], 1.0))
+    t.push(u("angle", "radian", ["rad", "radian", "radians"], 57.29577951308232))
+    t.push(u("temperature", "celsius", ["c", "celsius", "°c"], 1.0))
+    t.push(u("temperature", "fahrenheit", ["f", "fahrenheit", "°f"], 1.0))
+    t.push(u("temperature", "kelvin", ["k", "kelvin"], 1.0))
+    give t
+}
+
+fn find_unit(word: Text) -> Unit {
+    let w = word.lower().trim()
+    for x in table() {
+        for n in x.names { if n == w { give x } }
+    }
+    give Unit { }
+}
+
+fn to_celsius(unit: Text, v: Num) -> Num {
+    if unit == "fahrenheit" { give (v - 32.0) * 5.0 / 9.0 }
+    if unit == "kelvin" { give v - 273.15 }
+    give v
+}
+
+fn from_celsius(unit: Text, v: Num) -> Num {
+    if unit == "fahrenheit" { give v * 9.0 / 5.0 + 32.0 }
+    if unit == "kelvin" { give v + 273.15 }
+    give v
+}
+
+fn named(x: Unit, v: Num) -> Text {
+    if v == 1.0 or x.kind == "temperature" or x.kind == "angle" and false { give x.name }
+    let n = x.name
+    if n == "foot" { give "feet" }
+    if n.ends_with("ch") or n.ends_with("s") or n.ends_with("x") { give n + "es" }
+    if n.contains(" per ") or n == "metre per second" { give n.replace(" per ", "s per ") }
+    give n + "s"
+}
+
+fn split_on(s: Text, word: Text) -> [Text] {
+    let low = s.lower()
+    let i = low.index_of(word)
+    if i < 0 { give [] }
+    give [s.slice(0, i), s.slice(i + word.len(), s.len())]
+}
+
+pub fn convert(src: Text) -> calc.Answer {
+    let s = src.trim()
+    var parts: [Text] = []
+    for sep in [" to ", " in ", " into ", " as ", "->", " → "] {
+        let p = split_on(s, sep)
+        if p.len() == 2 { parts = p; break }
+    }
+    if parts.len() != 2 { give calc.Answer { } }
+    let left = parts[0].trim()
+    let target = find_unit(parts[1])
+    if target.name == "" { give calc.Answer { } }
+
+    ~~ split the number from the unit: "5.5 km", "5km", "72°f"
+    let cs = left.chars()
+    var cut = 0
+    while cut < cs.len() and ((cs[cut] >= "0" and cs[cut] <= "9") or cs[cut] == "." or cs[cut] == "-" or cs[cut] == "," or cs[cut] == " " or cs[cut] == "+" or cs[cut] == "*" or cs[cut] == "/" or cs[cut] == "(" or cs[cut] == ")") {
+        cut = cut + 1
+    }
+    if cut == 0 { give calc.Answer { } }
+    let num_part = left.slice(0, cut).trim()
+    let unit_part = left.slice(cut, left.len()).trim()
+    let from = find_unit(unit_part)
+    if from.name == "" or from.kind != target.kind { give calc.Answer { } }
+    let n = calc.evaluate(num_part)
+    if not n.ok { give calc.Answer { } }
+    var out = 0.0
+    if from.kind == "temperature" {
+        out = from_celsius(target.name, to_celsius(from.name, n.value))
+    } else {
+        out = n.value * from.factor / target.factor
+    }
+    let label = calc.show(n.value) + " " + named(from, n.value)
+    give calc.Answer { ok: true, value: out, text: calc.show(out) + " " + named(target, out), note: label }
+}
+
+~~ One call for the address bar: a sum, or a conversion, or neither.
+pub fn answer(src: Text) -> calc.Answer {
+    let c = convert(src)
+    if c.ok { give c }
+    let t = src.trim()
+    if t == "" { give calc.Answer { } }
+    let first = t.slice(0, 1)
+    let looks = (first >= "0" and first <= "9") or first == "(" or first == "-" or first == "=" or first == "." or first == "+"
+    var fn_call = false
+    for name in ["sqrt", "sin", "cos", "tan", "ln", "log", "abs", "min", "max", "round", "floor", "ceil", "fact", "exp", "pi", "cbrt"] {
+        if t.lower().starts_with(name) {
+            let rest = t.slice(name.len(), t.len()).trim()
+            if rest == "" and name == "pi" { fn_call = true }
+            if rest.starts_with("(") { fn_call = true }
+        }
+    }
+    if not looks and not fn_call { give calc.Answer { } }
+    let r = calc.evaluate(t)
+    if not r.ok { give r }
+    ~~ a bare number is not worth showing as an answer
+    var plain = true
+    for c in t.chars() {
+        if not ((c >= "0" and c <= "9") or c == "." or c == "," or c == " " or c == "-") { plain = false }
+    }
+    if plain { give calc.Answer { } }
+    give r
+}

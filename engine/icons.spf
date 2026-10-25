@@ -1,0 +1,129 @@
+~~ =====================================================================
+~~  Sreon — icons
+~~  One hand-drawn set, 24 x 24, drawn with a single line weight.
+~~ =====================================================================
+module icons
+
+fn path_of(name: Text) -> Text {
+    if name == "back" { give "<path d=\"M15 5l-7 7 7 7\"/>" }
+    if name == "forward" { give "<path d=\"M9 5l7 7-7 7\"/>" }
+    if name == "reload" { give "<path d=\"M20 11a8 8 0 1 0-2.3 6.1\"/><path d=\"M20 4v7h-7\"/>" }
+    if name == "stop" { give "<path d=\"M6 6l12 12M18 6L6 18\"/>" }
+    if name == "close" { give "<path d=\"M6 6l12 12M18 6L6 18\"/>" }
+    if name == "plus" { give "<path d=\"M12 5v14M5 12h14\"/>" }
+    if name == "search" { give "<circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"M20 20l-4-4\"/>" }
+    if name == "shield" { give "<path d=\"M12 3l7 3v5c0 5-3 8.5-7 10-4-1.500-7-5-7-10V6z\"/><path d=\"M9 12l2 2 4-4\"/>" }
+    if name == "shield-off" { give "<path d=\"M12 3l7 3v5c0 5-3 8.5-7 10-4-1.500-7-5-7-10V6z\"/><path d=\"M4 4l16 16\"/>" }
+    if name == "spark" { give "<path d=\"M12 3l1.800 5.200L19 10l-5.200 1.800L12 17l-1.800-5.200L5 10l5.200-1.800z\"/><path d=\"M19 16l.8 2.200L22 19l-2.200.8L19 22l-.8-2.200L16 19l2.200-.8z\"/>" }
+    if name == "note" { give "<path d=\"M6 3h9l4 4v14H6z\"/><path d=\"M14 3v5h5M9 13h7M9 17h5\"/>" }
+    if name == "tools" { give "<path d=\"M14.500 6.500a4 4 0 0 0 4.800 4.800L21 13l-8 8-3-3 8-8\"/><path d=\"M3 21l6-6M9 3l3 3-4 4-3-3z\"/>" }
+    if name == "reader" { give "<path d=\"M4 5h6a2 2 0 0 1 2 2v13a2 2 0 0 0-2-2H4zM20 5h-6a2 2 0 0 0-2 2v13a2 2 0 0 1 2-2h6z\"/>" }
+    if name == "star" { give "<path d=\"M12 3.500l2.700 5.500 6 .9-4.400 4.200 1 6-5.300-2.800-5.300 2.800 1-6L3.300 9.900l6-.9z\"/>" }
+    if name == "share" { give "<path d=\"M12 15V3M8 7l4-4 4 4\"/><path d=\"M5 12v8h14v-8\"/>" }
+    if name == "panel" { give "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"3\"/><path d=\"M15 4v16\"/>" }
+    if name == "sidebar" { give "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"3\"/><path d=\"M9 4v16\"/>" }
+    if name == "download" { give "<path d=\"M12 4v11M7 11l5 5 5-5\"/><path d=\"M5 20h14\"/>" }
+    if name == "history" { give "<path d=\"M3 12a9 9 0 1 0 3-6.700L3 8\"/><path d=\"M3 3v5h5M12 7v5l3 2\"/>" }
+    if name == "bookmark" { give "<path d=\"M6 4h12v17l-6-4-6 4z\"/>" }
+    if name == "gear" { give "<circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M19.400 15a1.700 1.700 0 0 0 .3 1.800l.1.100a2 2 0 1 1-2.800 2.800l-.1-.1a1.700 1.700 0 0 0-1.800-.3 1.700 1.700 0 0 0-1 1.500V21a2 2 0 1 1-4 0v-.1a1.700 1.700 0 0 0-1.100-1.500 1.700 1.700 0 0 0-1.800.3l-.1.1a2 2 0 1 1-2.800-2.800l.1-.1a1.700 1.700 0 0 0 .3-1.800 1.700 1.700 0 0 0-1.500-1H3a2 2 0 1 1 0-4h.1a1.700 1.700 0 0 0 1.500-1.100 1.700 1.700 0 0 0-.3-1.800l-.1-.1a2 2 0 1 1 2.800-2.800l.1.1a1.700 1.700 0 0 0 1.800.3H9a1.700 1.700 0 0 0 1-1.500V3a2 2 0 1 1 4 0v.1a1.700 1.700 0 0 0 1 1.500 1.700 1.700 0 0 0 1.800-.3l.1-.1a2 2 0 1 1 2.800 2.800l-.1.100a1.700 1.700 0 0 0-.3 1.800V9a1.700 1.700 0 0 0 1.500 1H21a2 2 0 1 1 0 4h-.1a1.700 1.700 0 0 0-1.500 1z\"/>" }
+    if name == "code" { give "<path d=\"M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16\"/>" }
+    if name == "pin" { give "<path d=\"M9 3h6l-1 6 3 3v2H7v-2l3-3z\"/><path d=\"M12 14v7\"/>" }
+    if name == "moon" { give "<path d=\"M20 14.500A8 8 0 1 1 9.500 4 6.500 6.500 0 0 0 20 14.500z\"/>" }
+    if name == "split" { give "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"3\"/><path d=\"M12 4v16\"/>" }
+    if name == "lock" { give "<rect x=\"5\" y=\"11\" width=\"14\" height=\"10\" rx=\"2\"/><path d=\"M8 11V8a4 4 0 0 1 8 0v3\"/>" }
+    if name == "unlock" { give "<rect x=\"5\" y=\"11\" width=\"14\" height=\"10\" rx=\"2\"/><path d=\"M8 11V8a4 4 0 0 1 7.500-2\"/>" }
+    if name == "clock" { give "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 7v5l3 2\"/>" }
+    if name == "trash" { give "<path d=\"M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13\"/>" }
+    if name == "check" { give "<path d=\"M5 12.500l4.500 4.500L19 7\"/>" }
+    if name == "chevron" { give "<path d=\"M6 9l6 6 6-6\"/>" }
+    if name == "bolt" { give "<path d=\"M13 2L4 14h7l-1 8 9-12h-7z\"/>" }
+    if name == "focus" { give "<circle cx=\"12\" cy=\"12\" r=\"9\"/><circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 3v3M12 18v3M3 12h3M18 12h3\"/>" }
+    if name == "board" { give "<path d=\"M4 20l4-1 11-11a2.800 2.800 0 0 0-4-4L4 15z\"/><path d=\"M13 6l4 4\"/>" }
+    if name == "globe" { give "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18\"/>" }
+    if name == "home" { give "<path d=\"M4 11l8-7 8 7v9h-5v-6H9v6H4z\"/>" }
+    if name == "copy" { give "<rect x=\"8\" y=\"8\" width=\"12\" height=\"12\" rx=\"2\"/><path d=\"M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2\"/>" }
+    if name == "camera" { give "<path d=\"M4 8h3l2-3h6l2 3h3v12H4z\"/><circle cx=\"12\" cy=\"13\" r=\"3.500\"/>" }
+    if name == "play" { give "<path d=\"M7 4l13 8-13 8z\"/>" }
+    if name == "sleep" { give "<path d=\"M5 5h6L5 12h6M14 12h5l-5 7h5\"/>" }
+    if name == "calc" { give "<rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M8 7h8M8 12h2M12 12h2M16 12h0M8 16h2M12 16h2M16 16h0\"/>" }
+    if name == "book" { give "<path d=\"M5 4h12a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z\"/><path d=\"M5 18a2 2 0 0 1 2-2h12\"/>" }
+    if name == "folder" { give "<path d=\"M3 6h6l2 2h10v11H3z\"/>" }
+    if name == "file" { give "<path d=\"M6 3h8l5 5v13H6z\"/><path d=\"M14 3v5h5\"/>" }
+    if name == "undo" { give "<path d=\"M9 14L4 9l5-5\"/><path d=\"M4 9h10a6 6 0 0 1 0 12h-3\"/>" }
+    if name == "redo" { give "<path d=\"M15 14l5-5-5-5\"/><path d=\"M20 9H10a6 6 0 0 0 0 12h3\"/>" }
+    if name == "pen" { give "<path d=\"M4 20l1-4L17 4a2 2 0 0 1 3 3L8 19z\"/>" }
+    if name == "highlighter" { give "<path d=\"M9 11l4 4M4 20l4-1 10-10-3-3L5 16z\"/><path d=\"M13 7l4 4\"/>" }
+    if name == "eraser" { give "<path d=\"M4 16l9-9 6 6-6 6H8z\"/><path d=\"M10 20h10\"/>" }
+    if name == "rect" { give "<rect x=\"4\" y=\"6\" width=\"16\" height=\"12\" rx=\"2\"/>" }
+    if name == "ellipse" { give "<ellipse cx=\"12\" cy=\"12\" rx=\"9\" ry=\"7\"/>" }
+    if name == "line" { give "<path d=\"M5 19L19 5\"/>" }
+    if name == "arrow" { give "<path d=\"M5 19L19 5M9 5h10v10\"/>" }
+    if name == "text" { give "<path d=\"M5 6V4h14v2M12 4v16M9 20h6\"/>" }
+    if name == "sticky" { give "<path d=\"M4 4h16v10l-6 6H4z\"/><path d=\"M14 20v-6h6\"/>" }
+    if name == "hand" { give "<path d=\"M8 12V5a1.500 1.500 0 0 1 3 0v6m0-7a1.500 1.500 0 0 1 3 0v7m0-5a1.500 1.500 0 0 1 3 0v8a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-3l-2-4a1.500 1.500 0 0 1 2.500-1.500L8 14\"/>" }
+    if name == "zoom" { give "<circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"M20 20l-4-4M11 8v6M8 11h6\"/>" }
+    if name == "eye-off" { give "<path d=\"M3 3l18 18M10.600 6.100A9 9 0 0 1 12 6c5 0 8.500 4 9.500 6a14 14 0 0 1-2.700 3.400M6.600 6.700A14 14 0 0 0 2.500 12C3.500 14 7 18 12 18a9 9 0 0 0 3.300-.6\"/>" }
+    if name == "list" { give "<path d=\"M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01\"/>" }
+    if name == "grid" { give "<rect x=\"4\" y=\"4\" width=\"7\" height=\"7\" rx=\"1.500\"/><rect x=\"13\" y=\"4\" width=\"7\" height=\"7\" rx=\"1.500\"/><rect x=\"4\" y=\"13\" width=\"7\" height=\"7\" rx=\"1.500\"/><rect x=\"13\" y=\"13\" width=\"7\" height=\"7\" rx=\"1.500\"/>" }
+    if name == "timer" { give "<circle cx=\"12\" cy=\"13\" r=\"8\"/><path d=\"M12 9v4l2 2M9 2h6\"/>" }
+    if name == "palette" { give "<path d=\"M12 3a9 9 0 1 0 0 18c1.500 0 2-1 1.500-2.200-.5-1.300.2-2.800 2-2.800H18a3 3 0 0 0 3-3A9 9 0 0 0 12 3z\"/><circle cx=\"7.500\" cy=\"11\" r=\".8\"/><circle cx=\"10\" cy=\"7\" r=\".8\"/><circle cx=\"15\" cy=\"7\" r=\".8\"/>" }
+    if name == "json" { give "<path d=\"M8 4c-2 0-3 1-3 3v2c0 1-1 3-2 3 1 0 2 2 2 3v2c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2c0 1 1 3 2 3-1 0-2 2-2 3v2c0 2-1 3-3 3\"/>" }
+    if name == "hash" { give "<path d=\"M5 9h14M5 15h14M10 4L8 20M16 4l-2 16\"/>" }
+    if name == "key" { give "<circle cx=\"8\" cy=\"15\" r=\"4\"/><path d=\"M11 12l9-9M16 7l3 3\"/>" }
+    if name == "type" { give "<path d=\"M4 7V5h16v2M9 19h6M12 5v14\"/>" }
+    if name == "diff" { give "<path d=\"M7 4v12M3 8l4-4 4 4M17 20V8M13 16l4 4 4-4\"/>" }
+    if name == "more" { give "<circle cx=\"5\" cy=\"12\" r=\"1.200\"/><circle cx=\"12\" cy=\"12\" r=\"1.200\"/><circle cx=\"19\" cy=\"12\" r=\"1.200\"/>" }
+    if name == "terminal" { give "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"3\"/><path d=\"M7 9l3 3-3 3M12 15h5\"/>" }
+    if name == "wrench" { give "<path d=\"M14.500 6.500a4 4 0 0 0 4.800 4.800L21 13l-8 8-3-3 8-8\"/>" }
+    if name == "sun" { give "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2M12 20v2M4.900 4.900l1.400 1.400M17.700 17.700l1.400 1.400M2 12h2M20 12h2M4.900 19.100l1.400-1.400M17.700 6.300l1.400-1.400\"/>" }
+    if name == "mail" { give "<rect x=\"3\" y=\"5\" width=\"18\" height=\"14\" rx=\"3\"/><path d=\"M4 8l8 6 8-6\"/>" }
+    if name == "video" { give "<rect x=\"3\" y=\"5\" width=\"18\" height=\"14\" rx=\"4\"/><path d=\"M10 9.500v5l4.500-2.500z\"/>" }
+    if name == "news" { give "<path d=\"M5 4h11v16H7a2 2 0 0 1-2-2zM16 8h3v10a2 2 0 0 1-2 2\"/><path d=\"M8 8h5M8 12h5M8 16h3\"/>" }
+    if name == "chat" { give "<path d=\"M4 6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-6l-5 4v-4a3 3 0 0 1-2-3z\"/>" }
+    if name == "cart" { give "<path d=\"M3 4h3l2 11h10l2-8H7\"/><circle cx=\"9\" cy=\"19\" r=\"1.300\"/><circle cx=\"17\" cy=\"19\" r=\"1.300\"/>" }
+    if name == "map" { give "<path d=\"M12 21s-7-6-7-11a7 7 0 0 1 14 0c0 5-7 11-7 11z\"/><circle cx=\"12\" cy=\"10\" r=\"2.500\"/>" }
+    if name == "music" { give "<path d=\"M9 18V5l11-2v13\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/><circle cx=\"17\" cy=\"16\" r=\"3\"/>" }
+    if name == "cap" { give "<path d=\"M2 9l10-5 10 5-10 5z\"/><path d=\"M6 11.500V16c0 1.500 3 3 6 3s6-1.500 6-3v-4.500\"/>" }
+    if name == "cloud" { give "<path d=\"M7 18a4.500 4.500 0 0 1-.5-9A6 6 0 0 1 18 10a4 4 0 0 1-.5 8z\"/>" }
+    if name == "dollar" { give "<path d=\"M12 3v18M16 7.500C15 6.500 13.700 6 12 6c-2.200 0-4 1.100-4 3s1.800 2.600 4 3 4 1.100 4 3-1.800 3-4 3c-1.800 0-3.200-.6-4.200-1.600\"/>" }
+    if name == "contrast" { give "<circle cx=\"12\" cy=\"12\" r=\"8.500\"/><path d=\"M12 3.500v17a8.500 8.500 0 0 0 0-17z\"/>" }
+    if name == "newtab" { give "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"3\"/><path d=\"M12 9v6M9 12h6\"/>" }
+    if name == "power" { give "<path d=\"M12 3v8\"/><path d=\"M6.500 6.500a8 8 0 1 0 11 0\"/>" }
+    if name == "command" { give "<path d=\"M9 9V6.500A2.500 2.500 0 1 0 6.500 9zM9 9h6M15 9V6.500A2.500 2.500 0 1 1 17.500 9zM9 9v6M15 9v6M9 15H6.500A2.500 2.500 0 1 0 9 17.500zM15 15h2.500a2.500 2.500 0 1 1-2.500 2.500z\"/>" }
+    if name == "sliders" { give "<path d=\"M4 7h9M17 7h3M4 17h3M11 17h9\"/><circle cx=\"15\" cy=\"7\" r=\"2\"/><circle cx=\"9\" cy=\"17\" r=\"2\"/>" }
+    if name == "eye" { give "<path d=\"M2 12s3.500-7 10-7 10 7 10 7-3.500 7-10 7S2 12 2 12z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>" }
+    if name == "tabs" { give "<rect x=\"3\" y=\"6\" width=\"18\" height=\"14\" rx=\"3\"/><path d=\"M3 10h18M8 6V3.500\"/>" }
+    give "<circle cx=\"12\" cy=\"12\" r=\"8\"/>"
+}
+
+~~ An inline icon that takes its colour from the text around it.
+pub fn svg(name: Text) -> Text {
+    give "<svg class=\"i\" viewBox=\"0 0 24 24\">" + path_of(name) + "</svg>"
+}
+
+~~ The Sreon mark: a luminous planet, its ring, and a moon on watch.
+pub fn mark(size: Int) -> Text {
+    give "<svg width=\"" + size.to_text() + "\" height=\"" + size.to_text() + "\" viewBox=\"0 0 128 128\" fill=\"none\"><defs><radialGradient id=\"srbg\" cx=\"50%\" cy=\"28%\" r=\"85%\"><stop offset=\"0\" stop-color=\"#1a1840\"/><stop offset=\".55\" stop-color=\"#0a0b1c\"/><stop offset=\"1\" stop-color=\"#03030a\"/></radialGradient><radialGradient id=\"srpl\" cx=\"38%\" cy=\"32%\" r=\"78%\"><stop offset=\"0\" stop-color=\"#ffffff\"/><stop offset=\".28\" stop-color=\"#b9f0ff\"/><stop offset=\".62\" stop-color=\"#7a6cff\"/><stop offset=\"1\" stop-color=\"#2b1f86\"/></radialGradient><linearGradient id=\"srrg\" x1=\"12\" y1=\"84\" x2=\"116\" y2=\"44\" gradientUnits=\"userSpaceOnUse\"><stop offset=\"0\" stop-color=\"#8b7cff\"/><stop offset=\".55\" stop-color=\"#4fd1ff\"/><stop offset=\"1\" stop-color=\"#f4fbff\"/></linearGradient><radialGradient id=\"srgl\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"0\" stop-color=\"#7a6cff\" stop-opacity=\".55\"/><stop offset=\"1\" stop-color=\"#7a6cff\" stop-opacity=\"0\"/></radialGradient><clipPath id=\"srsq\"><rect width=\"128\" height=\"128\" rx=\"29\"/></clipPath></defs><rect width=\"128\" height=\"128\" rx=\"29\" fill=\"url(#srbg)\"/><g clip-path=\"url(#srsq)\"><circle cx=\"64\" cy=\"66\" r=\"46\" fill=\"url(#srgl)\"/><circle cx=\"20\" cy=\"22\" r=\"1.1\" fill=\"#fff\" opacity=\".7\"/><circle cx=\"104\" cy=\"18\" r=\".9\" fill=\"#fff\" opacity=\".55\"/><circle cx=\"109\" cy=\"104\" r=\"1.2\" fill=\"#9fe8ff\" opacity=\".6\"/><circle cx=\"16\" cy=\"100\" r=\".8\" fill=\"#fff\" opacity=\".45\"/></g><g transform=\"rotate(-24 64 64)\"><ellipse cx=\"64\" cy=\"64\" rx=\"47\" ry=\"15.5\" stroke=\"url(#srrg)\" stroke-width=\"5\" opacity=\".55\"/></g><circle cx=\"64\" cy=\"64\" r=\"21\" fill=\"url(#srpl)\"/><g transform=\"rotate(-24 64 64)\"><path d=\"M17 64A47 15.5 0 0 0 111 64\" stroke=\"url(#srrg)\" stroke-width=\"5.5\" stroke-linecap=\"round\"/></g><circle cx=\"98.5\" cy=\"48.6\" r=\"7.5\" fill=\"#9fe8ff\" opacity=\".2\"/><circle cx=\"98.5\" cy=\"48.6\" r=\"3.7\" fill=\"#fff\"/><rect x=\".75\" y=\".75\" width=\"126.5\" height=\"126.5\" rx=\"28.3\" stroke=\"#fff\" stroke-opacity=\".1\" stroke-width=\"1.5\"/></svg>"
+}
+
+pub fn spf_mark(size: Int) -> Text {
+    give "<svg width=\"" + size.to_text() + "\" height=\"" + size.to_text() + "\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M13 2L4 14h7l-1 8 9-12h-7z\" fill=\"#FFA136\"/></svg>"
+}
+
+
+~~ A drawn glyph for a site, picked from what kind of site it is.
+pub fn site_glyph(host: Text) -> Text {
+    for k in ["mail", "outlook", "proton", "gmail"] { if host.index_of(k) >= 0 { give "mail" } }
+    for k in ["youtube", "vimeo", "twitch", "netflix", "tiktok", "dailymotion", "hulu", "disneyplus"] { if host.index_of(k) >= 0 { give "video" } }
+    for k in ["github", "gitlab", "bitbucket", "stackoverflow", "stackexchange", "developer.", "docs.", "mdn", "devdocs", "npmjs", "crates.io", "pypi", "codepen", "replit", "dev.to", "sprfst", "sreon"] { if host.index_of(k) >= 0 { give "code" } }
+    for k in ["twitter", "x.com", "reddit", "facebook", "instagram", "linkedin", "discord", "mastodon", "threads", "slack", "whatsapp", "telegram", "messenger"] { if host.index_of(k) >= 0 { give "chat" } }
+    for k in ["amazon", "ebay", "etsy", "shop", "store", "walmart", "aliexpress", "target."] { if host.index_of(k) >= 0 { give "cart" } }
+    for k in ["maps", "openstreetmap", "waze", "booking", "airbnb", "tripadvisor", "travel"] { if host.index_of(k) >= 0 { give "map" } }
+    for k in ["spotify", "soundcloud", "music", "bandcamp", "deezer"] { if host.index_of(k) >= 0 { give "music" } }
+    for k in ["news", "times", "post", "bbc", "cnn", "guardian", "reuters", "ycombinator", "verge", "wired", "medium", "substack", "blog"] { if host.index_of(k) >= 0 { give "news" } }
+    for k in ["wikipedia", "edu", "khan", "coursera", "udemy", "britannica", "scholar", "arxiv"] { if host.index_of(k) >= 0 { give "cap" } }
+    for k in ["duckduckgo", "bing", "brave", "startpage", "ecosia", "qwant", "kagi", "search", "yahoo", "mojeek"] { if host.index_of(k) >= 0 { give "search" } }
+    for k in ["drive", "dropbox", "icloud", "onedrive", "cloud", "notion", "figma", "docs", "sheets"] { if host.index_of(k) >= 0 { give "cloud" } }
+    for k in ["bank", "paypal", "stripe", "finance", "invest", "coin", "crypto", "wise.com"] { if host.index_of(k) >= 0 { give "dollar" } }
+    give "globe"
+}

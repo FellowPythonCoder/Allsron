@@ -1,0 +1,34 @@
+~~ Files, JSON and CSV.
+use std.io
+use std.fs
+use std.json
+use std.csv
+use std.path
+
+fn main() {
+    let dir = "/tmp/sprfst-example"
+    fs.mkdir(dir)
+
+    let note = path.join(dir, "note.txt")
+    fs.write(note, "SPRFST was here\n")
+    fs.append(note, "second line\n")
+    io.say("file is {fs.size(note)} bytes")
+    io.say(fs.read(note) ?? "")
+
+    let record = ["name": "Ada", "languages": ["sprfst", "maths"], "active": true]
+    let encoded = json.write(record)
+    io.say("json {encoded}")
+    io.say("pretty\n{json.pretty(record)}")
+
+    let decoded = json.parse(encoded)
+    io.say("name is {decoded?.get("name") ?? "?"}")
+
+    let table = "city,people\nhouston,2300000\naustin,960000"
+    let rows = csv.parse(table)
+    for row in rows {
+        io.say("row {row}")
+    }
+
+    io.say("files here: {fs.list(dir)}")
+    fs.remove(note)
+}

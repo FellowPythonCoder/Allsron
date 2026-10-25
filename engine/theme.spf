@@ -1,0 +1,133 @@
+~~ =====================================================================
+~~  Sreon — theme
+~~  Turns the appearance settings into one block of CSS variables.
+~~ =====================================================================
+module theme
+
+use kit
+use settings
+use assets
+
+pub object Palette {
+    name: Text = ""
+    dark: Bool = true
+    bg: Text = ""
+    bg2: Text = ""
+    surface: Text = ""
+    surface2: Text = ""
+    text: Text = ""
+    muted: Text = ""
+    faint: Text = ""
+    accent: Text = ""
+    accent2: Text = ""
+}
+
+fn p(name: Text, dark: Bool, bg: Text, bg2: Text, surface: Text, surface2: Text, text: Text, muted: Text, faint: Text, a: Text, b: Text) -> Palette {
+    give Palette { name: name, dark: dark, bg: bg, bg2: bg2, surface: surface, surface2: surface2, text: text, muted: muted, faint: faint, accent: a, accent2: b }
+}
+
+pub fn palettes() -> [Palette] {
+    give [
+        p("celestial", true, "#05060c", "#080a13", "#0d101b", "#161a2a", "#eef1fb", "#9aa3bd", "#5d6682", "#8c9bff", "#5fe3ff"),
+        p("midnight", true, "#0a0a10", "#0e0e16", "#15151f", "#1d1d2a", "#f3f3f8", "#a2a2b5", "#6d6d80", "#8b7cff", "#4fd1ff"),
+        p("graphite", true, "#111113", "#161618", "#1c1c1f", "#26262a", "#f2f2f4", "#a4a4ac", "#6e6e76", "#9ca3af", "#e5e7eb"),
+        p("abyss", true, "#04070d", "#070b14", "#0d1320", "#141c2e", "#eaf1fb", "#8fa3c0", "#5a6b86", "#3b82f6", "#22d3ee"),
+        p("forest", true, "#080f0b", "#0c1510", "#121e17", "#1a2a21", "#eaf5ee", "#9bb8a6", "#627a6c", "#34d399", "#a3e635"),
+        p("rose", true, "#110a0d", "#170e12", "#1f141a", "#2b1c24", "#fbeff3", "#c3a1ae", "#85626f", "#fb7185", "#f0abfc"),
+        p("dusk", true, "#0f0b17", "#14101e", "#1c1629", "#271f39", "#f4effc", "#b1a5cc", "#76698f", "#c084fc", "#fb923c"),
+        p("paper", false, "#f6f6f9", "#ffffff", "#ffffff", "#ececf2", "#15151c", "#5b5b6c", "#8d8d9e", "#6a5cff", "#18a8d8")
+    ]
+}
+
+pub fn pick(s: Map<Text, Any>, system_dark: Bool) -> Palette {
+    var name = settings.str(s, "theme")
+    if name == "auto" { name = if system_dark { "celestial" } else { "paper" } }
+    for pal in palettes() { if pal.name == name { give pal } }
+    give palettes()[0]
+}
+
+fn font_stack(f: Text) -> Text {
+    if f == "rounded" { give "ui-rounded, 'SF Pro Rounded', -apple-system, BlinkMacSystemFont, sans-serif" }
+    if f == "serif" { give "'New York', ui-serif, Georgia, serif" }
+    if f == "mono" { give "'SF Mono', ui-monospace, Menlo, monospace" }
+    give "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif"
+}
+
+fn newtab_bg(s: Map<Text, Any>, pal: Palette) -> Text {
+    let kind = settings.str(s, "nt_bg")
+    let a = settings.str(s, "accent")
+    let b = settings.str(s, "accent2")
+    if kind == "solid" { give pal.bg }
+    if kind == "custom" and settings.str(s, "nt_custom") != "" { give settings.str(s, "nt_custom") }
+    if kind == "cosmos" {
+        give "radial-gradient(1100px 620px at 82% -12%, color-mix(in srgb," + a + " 20%, transparent), transparent 70%), radial-gradient(900px 560px at -8% 108%, color-mix(in srgb," + b + " 13%, transparent), transparent 70%), radial-gradient(600px 400px at 50% 55%, color-mix(in srgb," + a + " 6%, transparent), transparent 75%), " + pal.bg
+    }
+    if kind == "mesh" {
+        give "radial-gradient(800px 500px at 15% 10%, color-mix(in srgb," + a + " 40%, transparent), transparent), radial-gradient(700px 500px at 90% 20%, color-mix(in srgb," + b + " 34%, transparent), transparent), radial-gradient(900px 600px at 50% 110%, color-mix(in srgb," + a + " 26%, transparent), transparent), " + pal.bg
+    }
+    if kind == "nebula" {
+        give "radial-gradient(600px 400px at 70% 15%, color-mix(in srgb," + b + " 38%, transparent), transparent), radial-gradient(700px 500px at 20% 80%, color-mix(in srgb," + a + " 42%, transparent), transparent), conic-gradient(from 210deg at 60% 40%, " + pal.bg + ", color-mix(in srgb," + a + " 14%, " + pal.bg + "), " + pal.bg + ")"
+    }
+    if kind == "dusk" {
+        give "linear-gradient(180deg, " + pal.bg + " 0%, color-mix(in srgb," + a + " 24%, " + pal.bg + ") 70%, color-mix(in srgb," + b + " 36%, " + pal.bg + ") 100%)"
+    }
+    ~~ aurora
+    give "radial-gradient(1000px 520px at 50% -8%, color-mix(in srgb," + a + " 46%, transparent), transparent 70%), radial-gradient(800px 420px at 85% 8%, color-mix(in srgb," + b + " 34%, transparent), transparent 70%), " + pal.bg
+}
+
+~~ system_dark: whether macOS is in dark mode, told to us by the window
+pub fn css(s: Map<Text, Any>, system_dark: Bool) -> Text {
+    let pal = pick(s, system_dark)
+    let a = settings.str(s, "accent")
+    let b = settings.str(s, "accent2")
+    let radius = settings.int(s, "radius")
+    let blur = settings.int(s, "blur")
+    let scale = settings.int(s, "scale")
+    let density = settings.str(s, "density")
+    var pad = ".5rem"
+    if density == "cozy" { pad = ".72rem" }
+    if density == "compact" { pad = ".3rem" }
+    let dark = pal.dark
+    let hover = if dark { "rgba(255,255,255,.06)" } else { "rgba(0,0,0,.05)" }
+    let hover2 = if dark { "rgba(255,255,255,.1)" } else { "rgba(0,0,0,.08)" }
+    let line = if dark { "rgba(255,255,255,.065)" } else { "rgba(0,0,0,.09)" }
+    let line2 = if dark { "rgba(255,255,255,.16)" } else { "rgba(0,0,0,.18)" }
+    let field = if dark { "rgba(255,255,255,.055)" } else { "rgba(0,0,0,.045)" }
+    let field2 = if dark { "rgba(255,255,255,.085)" } else { "rgba(0,0,0,.07)" }
+    let pop = if dark { "rgba(14,17,28,.8)" } else { "rgba(255,255,255,.82)" }
+    let panel = if dark { "rgba(14,14,22,.55)" } else { "rgba(255,255,255,.6)" }
+    var grad = "var(--accent)"
+    if settings.flag(s, "gradient") { grad = "linear-gradient(135deg," + a + "," + b + ")" }
+    var out = ":root{{"
+    out = out + "--bg:" + pal.bg + ";--bg2:" + pal.bg2 + ";--surface:" + pal.surface + ";--surface2:" + pal.surface2
+    out = out + ";--text:" + pal.text + ";--muted:" + pal.muted + ";--faint:" + pal.faint
+    out = out + ";--accent:" + a + ";--accent2:" + b + ";--grad:" + grad
+    out = out + ";--accent-soft:color-mix(in srgb," + a + " 20%,transparent)"
+    out = out + ";--hover:" + hover + ";--hover2:" + hover2 + ";--line:" + line + ";--line2:" + line2
+    out = out + ";--field:" + field + ";--field2:" + field2 + ";--pop:" + pop + ";--panel:" + panel
+    out = out + ";--ok:#34d399;--warn:#fbbf24;--bad:#fb7185"
+    out = out + ";--radius:" + radius.to_text() + "px;--blur:" + blur.to_text() + "px;--scale:" + (to_num(scale) / 100.0).to_text()
+    out = out + ";--tabpad:" + pad + ";--font:" + font_stack(settings.str(s, "font"))
+    out = out + ";--mono:'SF Mono',ui-monospace,Menlo,monospace"
+    out = out + ";--ntbg:" + newtab_bg(s, pal) + ";color-scheme:" + (if dark { "dark" } else { "light" }) + "}"
+    if not settings.flag(s, "motion") { out = out + "*{{transition:none!important;animation:none!important}" }
+    give out
+}
+
+pub fn is_dark(s: Map<Text, Any>, system_dark: Bool) -> Bool => pick(s, system_dark).dark
+
+~~ ---------------------------------------------------------- documents
+~~ Every internal page is built the same way: the theme, the shared
+~~ styles from sreon://assets and the bridge script.
+pub fn document(s: Map<Text, Any>, view: Text, title: Text, body_class: Text, extra_css: Text, body: Text, escape: Text) -> Text {
+    var d = "<!doctype html><html data-view=\"" + view + "\""
+    if escape != "" { d = d + " data-esc=\"" + escape + "\"" }
+    d = d + "><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + kit.esc(title) + "</title>"
+    d = d + "<style id=\"theme\">" + css(s, true) + "</style>"
+    d = d + "<link rel=\"stylesheet\" href=\"sreon://assets/sreon.css\">"
+    if extra_css != "" { d = d + "<link rel=\"stylesheet\" href=\"sreon://assets/" + extra_css + "\">" }
+    var cls = body_class
+    if not settings.flag(s, "motion") { cls = cls + " motion-off" }
+    d = d + "</head><body class=\"" + cls + "\">" + body + "<script src=\"sreon://assets/sreon.js\"></script></body></html>"
+    give d
+}

@@ -1,0 +1,110 @@
+~~ =====================================================================
+~~  Sreon — hl
+~~
+~~  The syntax colouring for the code editor. It reads SPRFST source and
+~~  writes HTML spans; a transparent text box sits on top of it.
+~~ =====================================================================
+module hl
+
+use kit
+
+fn keywords() -> Any {
+    var s = set(["fn"])
+    let all = ["module", "use", "export", "pub", "let", "var", "const", "type", "alias", "fn", "give", "object", "data", "trait", "enum", "impl", "has", "extends", "when", "match", "if", "else", "loop", "while", "for", "in", "break", "skip", "task", "spawn", "await", "chan", "try", "catch", "fail", "defer", "unsafe", "extern", "init", "drop", "static", "new", "and", "or", "not", "as", "is", "test", "bench", "macro", "comptime", "where", "ref", "mut", "own", "weak", "app", "on"]
+    for w in all { s.add(w) }
+    give s
+}
+
+fn is_digit(c: Text) -> Bool => c >= "0" and c <= "9"
+fn is_alpha(c: Text) -> Bool => (c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or c == "_" or c > "~"
+fn is_upper(c: Text) -> Bool => c >= "A" and c <= "Z"
+
+fn span(cls: Text, t: Text) -> Text => "<i class=\"" + cls + "\">" + kit.esc(t) + "</i>"
+
+pub fn html(src: Text) -> Text {
+    let cs = src.chars()
+    let kw = keywords()
+    var out = ""
+    var i = 0
+    let n = cs.len()
+    while i < n {
+        let c = cs[i]
+        ~~ comment
+        if c == "~" and i + 1 < n and cs[i + 1] == "~" {
+            var j = i
+            var s = ""
+            while j < n and cs[j] != "\n" { s = s + cs[j]; j = j + 1 }
+            out = out + span("c", s)
+            i = j
+            skip
+        }
+        ~~ raw text block r"""..."""
+        if c == "r" and i + 3 < n and cs[i + 1] == "\"" and cs[i + 2] == "\"" and cs[i + 3] == "\"" {
+            var j = i + 4
+            var s = "r\"\"\""
+            while j < n and not (cs[j] == "\"" and j + 2 < n + 0 and cs[j + 1] == "\"" and cs[j + 2] == "\"") { s = s + cs[j]; j = j + 1 }
+            if j < n { s = s + "\"\"\""; j = j + 3 }
+            out = out + span("s", s)
+            i = j
+            skip
+        }
+        ~~ text block """...""" and plain strings
+        if c == "\"" {
+            var j = i + 1
+            var s = "\""
+            if i + 2 < n and cs[i + 1] == "\"" and cs[i + 2] == "\"" {
+                s = "\"\"\""
+                j = i + 3
+                while j < n and not (cs[j] == "\"" and j + 2 < n and cs[j + 1] == "\"" and cs[j + 2] == "\"") { s = s + cs[j]; j = j + 1 }
+                if j < n { s = s + "\"\"\""; j = j + 3 }
+                out = out + span("s", s)
+                i = j
+                skip
+            }
+            var depth = 0
+            while j < n and not (cs[j] == "\"" and depth == 0) and cs[j] != "\n" {
+                if cs[j] == "\\" and j + 1 < n { s = s + cs[j] + cs[j + 1]; j = j + 2; skip }
+                s = s + cs[j]
+                j = j + 1
+            }
+            if j < n and cs[j] == "\"" { s = s + "\""; j = j + 1 }
+            out = out + span("s", s)
+            i = j
+            skip
+        }
+        if is_digit(c) {
+            var j = i
+            var s = ""
+            while j < n and (is_digit(cs[j]) or cs[j] == "_" or (cs[j] == "." and j + 1 < n and is_digit(cs[j + 1])) or (cs[j] == "x" and j == i + 1) or (cs[j] >= "a" and cs[j] <= "f" and j > i + 1 and cs[i + 1] == "x")) { s = s + cs[j]; j = j + 1 }
+            out = out + span("n", s)
+            i = j
+            skip
+        }
+        if is_alpha(c) {
+            var j = i
+            var s = ""
+            while j < n and (is_alpha(cs[j]) or is_digit(cs[j])) { s = s + cs[j]; j = j + 1 }
+            var k = j
+            while k < n and cs[k] == " " { k = k + 1 }
+            let call = k < n and cs[k] == "("
+            let dotted = i > 0 and cs[i - 1] == "."
+            if s == "true" or s == "false" or s == "nil" { out = out + span("b", s) }
+            else if s == "self" { out = out + span("m", s) }
+            else if kw.has(s) { out = out + span("k", s) }
+            else if is_upper(s.chars()[0]) { out = out + span("t", s) }
+            else if call { out = out + span("f", s) }
+            else if dotted { out = out + span("p", s) }
+            else if k < n and cs[k] == "." and j == k { out = out + span("q", s) }
+            else { out = out + kit.esc(s) }
+            i = j
+            skip
+        }
+        if c == "?" and i + 1 < n and cs[i + 1] == "?" { out = out + span("o", "??"); i = i + 2; skip }
+        if c == "=" and i + 1 < n and (cs[i + 1] == ">" or cs[i + 1] == "=") { out = out + span("o", c + cs[i + 1]); i = i + 2; skip }
+        if c == "-" and i + 1 < n and cs[i + 1] == ">" { out = out + span("o", "->"); i = i + 2; skip }
+        if c == "+" or c == "-" or c == "*" or c == "/" or c == "=" or c == "<" or c == ">" or c == "!" or c == "%" or c == "|" or c == "&" or c == "?" or c == ":" { out = out + span("o", c); i = i + 1; skip }
+        out = out + kit.esc(c)
+        i = i + 1
+    }
+    give out + "\n"
+}

@@ -1,0 +1,33 @@
+~~ Teaching a two layer network the XOR function with std.ai.
+use std.io
+use std.ai
+use std.rand
+use std.math
+
+fn main() {
+    rand.seed(11)
+
+    var net = ai.Network { rate: 0.6 }
+    net.build(2, 6, 1)
+
+    let inputs = [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]]
+    let wanted = [[0.0], [1.0], [1.0], [0.0]]
+
+    io.say("training on XOR, which a single layer cannot learn")
+    let final_loss = net.train(inputs, wanted, 3000, true)
+    io.say("final loss {final_loss}")
+
+    var correct = 0
+    for i in range(0, 4) {
+        let got = net.predict(inputs[i])
+        let rounded = math.round(got[0])
+        if rounded == wanted[i][0] { correct = correct + 1 }
+        io.say("{inputs[i][0]} xor {inputs[i][1]} -> {rounded}   (raw {got[0]})")
+    }
+    io.say("{correct} of 4 correct")
+
+    io.say("")
+    let words = ai.tokenize("SPRFST is fast. SPRFST is small. Fast is good!")
+    io.say("tokens {words}")
+    io.say("vocabulary {ai.vocabulary(words)}")
+}

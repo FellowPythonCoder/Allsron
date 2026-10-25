@@ -1,0 +1,267 @@
+~~ =====================================================================
+~~  Sreon — the engine's front door
+~~
+~~      sprfst run engine/main.spf -- --serve           drive the window
+~~      sprfst run engine/main.spf -- --worker          run programs for Studio
+~~      sprfst run engine/main.spf -- --page sreon://about   print a page
+~~
+~~  The window starts this program and talks to it over a pipe: one JSON
+~~  request per line in, one JSON answer per line out. Everything the
+~~  browser decides, it decides here.
+~~ =====================================================================
+use std.io
+use std.sys
+use std.json
+use std.time
+use kit
+use settings
+use store
+use state
+use shield
+use theme
+use omnibox
+use views
+use pages
+use reader
+use router
+use assets
+use studio
+
+fn tab_of(m: Map<Text, Any>) -> state.Tab {
+    give state.Tab { id: kit.gi(m, "id", 0), title: kit.gt(m, "title"), url: kit.gt(m, "url"), loading: kit.gb(m, "loading", false),
+                     pinned: kit.gb(m, "pinned", false), sleeping: kit.gb(m, "sleeping", false), ws: kit.gt_or(m, "ws", "Personal"),
+                     back: kit.gb(m, "back", false), forward: kit.gb(m, "forward", false), secure: kit.gb(m, "secure", false),
+                     progress: kit.gn(m, "progress", 0.0), private: kit.gb(m, "private", false) }
+}
+
+fn is_local(host: Text) -> Bool {
+    if host == "localhost" or host == "127.0.0.1" or host == "::1" or host == "0.0.0.0" { give true }
+    if host.ends_with(".local") or host.ends_with(".test") or host.ends_with(".internal") or host.ends_with(".lan") { give true }
+    if host.starts_with("192.168.") or host.starts_with("10.") or host.starts_with("127.") { give true }
+    if host.starts_with("172.") { give true }
+    give false
+}
+
+fn on_list(list: Text, host: Text) -> Bool {
+    var h = host
+    if h.starts_with("www.") { h = h.slice(4, h.len()) }
+    for line in list.lines() {
+        var t = line.trim().lower()
+        if t.starts_with("www.") { t = t.slice(4, t.len()) }
+        if t != "" and (h == t or h.ends_with("." + t)) { give true }
+    }
+    give false
+}
+
+~~ May this address be opened? And should it be changed on the way?
+fn decide(a: state.App, url: Text) -> Map<Text, Any> {
+    var out: Map<Text, Any> = ["allow": true]
+    if not (url.starts_with("http://") or url.starts_with("https://")) { give out }
+    let host = kit.host_of(url)
+    if a.focus_on and on_list(settings.str(a.s, "focus_sites"), host) {
+        out.set("allow", false)
+        out.set("load", "sreon://blocked?h=" + host)
+        give out
+    }
+    var next = url
+    if settings.flag(a.s, "shield") and settings.flag(a.s, "strip") and next.contains("?") {
+        let cleaned = omnibox.clean_url(next)
+        if cleaned != next { next = cleaned; a.cleaned = a.cleaned + 1 }
+    }
+    if settings.flag(a.s, "shield") and settings.flag(a.s, "https") and next.starts_with("http://") and not is_local(host) {
+        next = "https://" + next.slice(7, next.len())
+        a.upgrades = a.upgrades + 1
+    }
+    if next != url {
+        out.set("allow", false)
+        out.set("load", next)
+    }
+    give out
+}
+
+fn menu_for(a: state.App, name: Text, args: Map<Text, Any>) -> [Any] {
+    var items: [Any] = []
+    if name == "tab" {
+        let id = kit.gi(args, "id", 0)
+        let t = state.tab_by_id(a, id)
+        items.push(["title": kit.sel(t.pinned, "Unpin tab", "Pin tab"), "act": "tab.pin", "args": ["id": id]])
+        items.push(["title": kit.sel(t.sleeping, "Wake tab", "Put tab to sleep"), "act": "tab.sleep", "args": ["id": id]])
+        items.push(["title": "Duplicate", "act": "tab.dup", "args": ["id": id]])
+        items.push(["title": "Copy clean link", "act": "tab.copy", "args": ["id": id]])
+        for w in a.workspaces { if w != t.ws { items.push(["title": "Move to " + w, "act": "tab.move", "args": ["id": id, "ws": w]]) } }
+        items.push(["sep": true])
+        items.push(["title": "Close other tabs", "act": "tab.closeothers", "args": ["id": id]])
+        items.push(["title": "Close tab", "act": "tab.close", "args": ["id": id]])
+    } else if name == "ws" {
+        let nm = kit.gt(args, "name")
+        items.push(["title": "Delete workspace “" + nm + "”", "act": "ws.delete", "args": ["name": nm]])
+    }
+    give items
+}
+
+fn boot_reply(a: state.App) -> Map<Text, Any> {
+    var acts: [Any] = []
+    for x in settings.actions() { acts.push([x[0], x[1], to_text(a.keys.get(x[0]) ?? x[2])]) }
+    give ["ok": true, "service": "sreon", "version": kit.version(), "settings": a.s, "actions": acts, "rules": a.book.network + a.book.cosmetic]
+}
+
+fn scripts_reply(a: state.App) -> Map<Text, Any> {
+    var cfg: Map<Text, Any> = [:]
+    cfg.set("gpc", settings.flag(a.s, "gpc") and settings.flag(a.s, "shield"))
+    cfg.set("videoAds", settings.flag(a.s, "video_ads") and settings.flag(a.s, "shield"))
+    cfg.set("cookies", settings.flag(a.s, "cookies") and settings.flag(a.s, "shield"))
+    var out: Map<Text, Any> = [:]
+    out.set("shield_js", assets.shield_js())
+    out.set("config", "window.__sreonShieldConfig=" + json.write(cfg) + ";")
+    out.set("dark_css", assets.dark_css())
+    out.set("extract_js", assets.extract_js())
+    out.set("shield_on", settings.flag(a.s, "shield"))
+    out.set("dark_pages", settings.flag(a.s, "dark_pages"))
+    give out
+}
+
+fn handle(a: state.App, req: Map<Text, Any>) -> Map<Text, Any> {
+    let op = kit.gt(req, "op")
+    if op == "boot" {
+        a.system_dark = kit.gb(req, "dark", true)
+        give boot_reply(a)
+    }
+    if op == "page" {
+        let s = router.page(a, kit.gt(req, "url"), a.readers)
+        give ["mime": s.mime, "body": s.body, "status": s.status]
+    }
+    if op == "act" {
+        let body = kit.gm(req, "data")
+        let r = router.act(a, kit.gt(req, "view"), kit.gt(body, "name"), kit.gm(body, "args"))
+        give r.to_map()
+    }
+    if op == "ready" { give [:] }
+    if op == "ctx" {
+        let body = kit.gm(req, "data")
+        give ["menu": menu_for(a, kit.gt(body, "name"), kit.gm(body, "args"))]
+    }
+    if op == "tabs" {
+        var list: [state.Tab] = []
+        for t in kit.gl(req, "tabs") { list.push(tab_of(router.map_of(t))) }
+        a.tabs = list
+        a.active = kit.gi(req, "active", 0)
+        let w = kit.gt(req, "ws")
+        if w != "" { a.ws = w }
+        give ["ok": true]
+    }
+    if op == "nav" { give decide(a, kit.gt(req, "url")) }
+    if op == "visit" {
+        omnibox.record_visit(a, kit.gt(req, "url"), kit.gt(req, "title"))
+        give ["ok": true]
+    }
+    if op == "closed" {
+        let u = kit.gt(req, "url")
+        if u != "" and not u.starts_with("sreon://newtab") { a.closed.push(u) }
+        give ["ok": true]
+    }
+    if op == "zoomfor" { give ["level": kit.gn(a.zoom, kit.site_of(kit.gt(req, "url")), 1.0)] }
+    if op == "rules" {
+        var lists: [Any] = []
+        for l in shield.compile(a.book, a.s) { lists.push(["id": l.id, "body": l.body]) }
+        give ["lists": lists, "on": settings.flag(a.s, "shield")]
+    }
+    if op == "scripts" { give scripts_reply(a) }
+    if op == "settings" { give ["settings": a.s] }
+    if op == "count" {
+        let what = kit.gt(req, "what")
+        if what == "popups" { a.popups = a.popups + 1 }
+        if what == "sleeps" { a.sleeps = a.sleeps + 1 }
+        give ["ok": true]
+    }
+    if op == "digest" {
+        let kind = kit.gt(req, "kind")
+        let art = reader.extract(kit.gt(req, "data"))
+        if kind == "brief" {
+            a.brief_html = reader.brief(a, art)
+            a.brief_for = reader.brief_plain(art)
+            give ["apply": ["view": "panel", "regions": ["pnbody": a.brief_html]], "ok": art.ok]
+        }
+        if not art.ok { give ["toast": "This page does not look like an article", "ok": false] }
+        a.reader_seq = a.reader_seq + 1
+        let id = a.reader_seq.to_text()
+        a.readers.set(id, reader.reader_html(a, art))
+        give ["open": "sreon://reader/" + id, "ok": true]
+    }
+    if op == "download" {
+        a.downloads.push(["name": kit.gt(req, "name"), "path": kit.gt(req, "path"), "from": kit.site_of(kit.gt(req, "from")), "state": kit.gt(req, "state")])
+        give ["ok": true]
+    }
+    if op == "theme" {
+        a.system_dark = kit.gb(req, "dark", true)
+        give ["css": theme.css(a.s, a.system_dark), "dark": theme.is_dark(a.s, a.system_dark)]
+    }
+    if op == "paste_settings" {
+        let parsed = json.parse(kit.gt(req, "text"))
+        if parsed != nil {
+            let m = router.map_of(parsed ?? [:])
+            for k in m.keys() { let d = settings.def_of(k); if d.key != "" { a.s.set(k, settings.coerce(d, m.get(k) ?? "")) } }
+            state.save_settings(a)
+            give ["ok": true]
+        }
+        give ["ok": false]
+    }
+    if op == "quit" { state.save_history(a); give ["ok": true, "bye": true] }
+    give ["ok": false, "error": "unknown request " + op]
+}
+
+fn worker_handle(req: Map<Text, Any>) -> Map<Text, Any> {
+    let op = kit.gt(req, "op")
+    if op == "act" {
+        let body = kit.gm(req, "data")
+        let r = studio.exec(kit.gt(body, "name"), kit.gm(body, "args"))
+        give r.to_map()
+    }
+    give ["ok": true]
+}
+
+fn serve(a: state.App, worker: Bool) {
+    io.say(json.write(["ok": true, "service": "sreon", "version": kit.version(), "role": kit.sel(worker, "worker", "core")]))
+    io.flush()
+    loop {
+        let line = io.read_line()
+        if line == nil { break }
+        let text = (line ?? "").trim()
+        if text == "" { skip }
+        let parsed = json.parse(text)
+        if parsed == nil {
+            io.say(json.write(["ok": false, "error": "not JSON"]))
+            io.flush()
+            skip
+        }
+        let req = router.map_of(parsed ?? [:])
+        var reply: Map<Text, Any> = [:]
+        if worker { reply = worker_handle(req) } else { reply = handle(a, req) }
+        reply.set("id", req.get("id") ?? 0)
+        io.say(json.write(reply))
+        io.flush()
+        if kit.gt(req, "op") == "quit" { break }
+    }
+}
+
+fn main() {
+    let args = sys.args()
+    var worker = false
+    var serving = false
+    var page_url = ""
+    var i = 0
+    while i < args.len() {
+        if args[i] == "--worker" { worker = true; serving = true }
+        else if args[i] == "--serve" { serving = true }
+        else if args[i] == "--page" and i + 1 < args.len() { i = i + 1; page_url = args[i] }
+        i = i + 1
+    }
+    let res = store.res_dir()
+    var a = state.boot(res)
+    if page_url != "" {
+        let s = router.page(a, page_url, a.readers)
+        io.say(s.body)
+        give
+    }
+    if serving { serve(a, worker); give }
+    io.say("Sreon engine " + kit.version() + ". Run with --serve, --worker or --page <address>.")
+}

@@ -1,0 +1,25 @@
+~~ Working with text.
+use std.io
+
+fn main() {
+    let line = "  SPRFST makes fast programs  "
+    io.say("trimmed    '{line.trim()}'")
+    io.say("upper      {line.trim().upper()}")
+    io.say("words      {line.trim().split(" ")}")
+    io.say("length     {line.trim().len()}")
+    io.say("has 'fast' {line.contains("fast")}")
+    io.say("replaced   {line.trim().replace("fast", "quick")}")
+    io.say("slice      {line.trim().slice(0, 6)}")
+    io.say("padded     '{"7".pad_left(4, "0")}'")
+    io.say("repeated   {"ab".repeat(3)}")
+    io.say("reversed   {"stressed".reverse()}")
+
+    let csvline = "ada,lovelace,1815"
+    let parts = csvline.split(",")
+    io.say("name {parts.first() ?? "?"} born {(parts.last() ?? "0").to_int() ?? 0}")
+
+    for ch in "abc".chars() {
+        io.print("[{ch}]")
+    }
+    io.say("")
+}

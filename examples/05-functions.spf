@@ -1,0 +1,30 @@
+~~ Functions, defaults, pipelines and closures.
+use std.io
+
+fn add(a: Int, b: Int) -> Int {
+    give a + b
+}
+
+fn shout(message: Text) -> Text => message.upper() + "!"
+
+fn apply_twice(value: Int, f: fn(Int) -> Int) -> Int {
+    give f(f(value))
+}
+
+fn main() {
+    io.say("2 + 3 = {add(2, 3)}")
+    io.say(shout("hello"))
+
+    let double = fn(n: Int) => n * 2
+    io.say("double twice 5 = {apply_twice(5, double)}")
+
+    ~~ a pipeline reads left to right
+    let total = [1, 2, 3, 4] |> sum
+    io.say("sum = {total}")
+    io.say("loud = {"quiet" |> shout}")
+
+    ~~ closures capture the values they can see
+    let base = 100
+    let offset = fn(n: Int) => n + base
+    io.say("offset 5 = {offset(5)}")
+}

@@ -1,0 +1,364 @@
+~~ =====================================================================
+~~  Sreon — tools
+~~
+~~  A drawer of small, honest tools. Everything runs on this computer.
+~~ =====================================================================
+module tools
+
+use std.fs
+use std.json
+use std.hash
+use std.math
+use std.sys
+use std.time
+use kit
+use store
+use state
+use icons
+use calc
+use units
+use guide
+
+pub object Def {
+    id: Text = ""
+    name: Text = ""
+    icon: Text = ""
+    about: Text = ""
+    opts: [Text] = []
+    hint: Text = ""
+    rows: Int = 6
+}
+
+pub fn defs() -> [Def] {
+    give [
+        Def { id: "calc", name: "Calculator", icon: "calc", about: "Sums, percentages, functions and unit conversions.", hint: "12 * (3 + 4)    15% of 80    5 km in miles    sqrt(2)", rows: 3 },
+        Def { id: "json", name: "JSON", icon: "json", about: "Check, tidy or squeeze JSON.", opts: ["pretty", "minify"], hint: "{\"name\": \"Sreon\", \"fast\": true}", rows: 10 },
+        Def { id: "base64", name: "Base64", icon: "key", about: "Encode or decode text.", opts: ["encode", "decode"], hint: "Text to encode…", rows: 5 },
+        Def { id: "url", name: "URL encode", icon: "globe", about: "Make text safe for an address, or read it back.", opts: ["encode", "decode"], hint: "hello world & more", rows: 4 },
+        Def { id: "hash", name: "Hash", icon: "hash", about: "Fingerprint text.", opts: ["sha256", "crc32"], hint: "Text to fingerprint…", rows: 5 },
+        Def { id: "color", name: "Colour", icon: "palette", about: "Convert colours and check contrast.", hint: "#8b7cff    rgb(79, 209, 255)    hsl(265 100% 74%)", rows: 2 },
+        Def { id: "secret", name: "Generator", icon: "key", about: "Passwords, tokens and unique ids from the system's random source.", opts: ["password", "token", "uuid"], hint: "Length (default 20)", rows: 2 },
+        Def { id: "text", name: "Text", icon: "type", about: "Count, convert and tidy text.", opts: ["stats", "UPPER", "lower", "Title", "sort", "unique", "reverse", "slug"], hint: "Paste or type text…", rows: 9 },
+        Def { id: "time", name: "Time", icon: "clock", about: "Turn a timestamp into a date, or find the one for now.", hint: "1760000000    or leave empty for now", rows: 2 },
+        Def { id: "markdown", name: "Markdown", icon: "reader", about: "Write and preview Markdown.", hint: "# Title\n\nSome **bold** words.\n\n- one\n- two", rows: 12 },
+        Def { id: "diff", name: "Compare", icon: "diff", about: "Show what changed between two texts. Put a line with --- between them.", hint: "the old text\n---\nthe new text", rows: 12 }
+    ]
+}
+
+pub fn first_opt(d: Def) -> Text {
+    if d.opts.len() > 0 { give d.opts[0] }
+    give ""
+}
+
+pub fn def_of(id: Text) -> Def {
+    for d in defs() { if d.id == id { give d } }
+    give defs()[0]
+}
+
+~~ ------------------------------------------------------------ helpers
+fn tmp_file(input: Text) -> Text {
+    let dir = store.data_dir() + "/tmp"
+    fs.mkdir(dir)
+    let f = dir + "/t" + kit.now_ms().to_text()
+    fs.write(f, input)
+    give f
+}
+
+fn shell_in(cmd: Text, input: Text) -> Text {
+    let f = tmp_file(input)
+    let out = sys.run(cmd.replace("{{F}}", f))
+    fs.remove(f)
+    give out
+}
+
+fn card(inner: Text) -> Text => "<div class=\"tl-res\">" + inner + "</div>"
+fn bad(msg: Text) -> Text => "<div class=\"tl-err\">" + kit.esc(msg) + "</div>"
+fn pre(t: Text) -> Text => "<pre class=\"tl-pre\">" + kit.esc(t) + "</pre><div class=\"tl-act\"><button class=\"btn sm\" data-act=\"st.copy\" data-a=\"" + kit.jattr(["text": t]) + "\">" + icons.svg("copy") + "Copy</button></div>"
+fn kv(k: Text, v: Text) -> Text => "<div class=\"kv\"><span>" + k + "</span><b data-act=\"st.copy\" data-a=\"" + kit.jattr(["text": v]) + "\" title=\"Click to copy\">" + kit.esc(v) + "</b></div>"
+
+~~ -------------------------------------------------------------- colour
+fn hexval(c: Text) -> Int {
+    let digits = "0123456789abcdef"
+    let i = digits.index_of(c.lower())
+    give kit.sel_i(i < 0, 0, i)
+}
+
+fn hex2(n: Int) -> Text {
+    let digits = "0123456789abcdef"
+    let v = kit.clamp_i(n, 0, 255)
+    give digits.slice(kit.idiv(v, 16), kit.idiv(v, 16) + 1) + digits.slice(v % 16, v % 16 + 1)
+}
+
+fn nums_in(t: Text) -> [Num] {
+    var out: [Num] = []
+    var cur = ""
+    for c in t.chars() {
+        if (c >= "0" and c <= "9") or c == "." { cur = cur + c }
+        else if cur != "" { out.push(cur.to_num() ?? 0.0); cur = "" }
+    }
+    if cur != "" { out.push(cur.to_num() ?? 0.0) }
+    give out
+}
+
+fn rgb_to_hsl(r: Num, g: Num, b: Num) -> [Num] {
+    let rf = r / 255.0
+    let gf = g / 255.0
+    let bf = b / 255.0
+    let mx = math.max(rf, math.max(gf, bf))
+    let mn = math.min(rf, math.min(gf, bf))
+    let l = (mx + mn) / 2.0
+    if mx == mn { give [0.0, 0.0, l * 100.0] }
+    let d = mx - mn
+    var s = d / (mn + mx)
+    if l > 0.5 { s = d / (2.0 - mx - mn) }
+    var h = 0.0
+    if mx == rf { h = (gf - bf) / d + (if gf < bf { 6.0 } else { 0.0 }) }
+    else if mx == gf { h = (bf - rf) / d + 2.0 }
+    else { h = (rf - gf) / d + 4.0 }
+    give [h * 60.0, s * 100.0, l * 100.0]
+}
+
+fn hsl_to_rgb(h: Num, s: Num, l: Num) -> [Num] {
+    let sf = s / 100.0
+    let lf = l / 100.0
+    let c = (1.0 - math.abs(2.0 * lf - 1.0)) * sf
+    let hh = (h % 360.0) / 60.0
+    let x = c * (1.0 - math.abs(hh % 2.0 - 1.0))
+    var r = 0.0
+    var g = 0.0
+    var b = 0.0
+    if hh < 1.0 { r = c; g = x }
+    else if hh < 2.0 { r = x; g = c }
+    else if hh < 3.0 { g = c; b = x }
+    else if hh < 4.0 { g = x; b = c }
+    else if hh < 5.0 { r = x; b = c }
+    else { r = c; b = x }
+    let m = lf - c / 2.0
+    give [(r + m) * 255.0, (g + m) * 255.0, (b + m) * 255.0]
+}
+
+fn lum(r: Num, g: Num, b: Num) -> Num {
+    var out = 0.0
+    var i = 0
+    for v in [r, g, b] {
+        var c = v / 255.0
+        if c <= 0.03928 { c = c / 12.92 } else { c = math.pow((c + 0.055) / 1.055, 2.4) }
+        out = out + c * [0.2126, 0.7152, 0.0722][i]
+        i = i + 1
+    }
+    give out
+}
+
+fn contrast(l1: Num, l2: Num) -> Num {
+    let hi = math.max(l1, l2)
+    let lo = math.min(l1, l2)
+    give (hi + 0.05) / (lo + 0.05)
+}
+
+fn color_tool(input: Text) -> Text {
+    let t = input.trim().lower()
+    if t == "" { give "" }
+    var r = 0.0
+    var g = 0.0
+    var b = 0.0
+    var ok = false
+    if t.starts_with("#") or (t.len() == 6 and not t.contains("(")) or (t.len() == 3 and not t.contains("(")) {
+        var h = t
+        if h.starts_with("#") { h = h.slice(1, h.len()) }
+        if h.len() == 3 { h = h.slice(0, 1) + h.slice(0, 1) + h.slice(1, 2) + h.slice(1, 2) + h.slice(2, 3) + h.slice(2, 3) }
+        if h.len() >= 6 {
+            r = to_num(hexval(h.slice(0, 1)) * 16 + hexval(h.slice(1, 2)))
+            g = to_num(hexval(h.slice(2, 3)) * 16 + hexval(h.slice(3, 4)))
+            b = to_num(hexval(h.slice(4, 5)) * 16 + hexval(h.slice(5, 6)))
+            ok = true
+        }
+    }
+    else if t.starts_with("rgb") {
+        let n = nums_in(t)
+        if n.len() >= 3 { r = n[0]; g = n[1]; b = n[2]; ok = true }
+    }
+    else if t.starts_with("hsl") {
+        let n = nums_in(t)
+        if n.len() >= 3 { let v = hsl_to_rgb(n[0], n[1], n[2]); r = v[0]; g = v[1]; b = v[2]; ok = true }
+    }
+    if not ok { give bad("Try a colour like #8b7cff, rgb(79, 209, 255) or hsl(265 100% 74%).") }
+    let hx = "#" + hex2(to_int(math.round(r))) + hex2(to_int(math.round(g))) + hex2(to_int(math.round(b)))
+    let hsl = rgb_to_hsl(r, g, b)
+    let l = lum(r, g, b)
+    var s = "<div class=\"swatch-lg\" style=\"background:" + hx + "\"></div>"
+    s = s + kv("Hex", hx) + kv("RGB", "rgb(" + to_int(math.round(r)).to_text() + ", " + to_int(math.round(g)).to_text() + ", " + to_int(math.round(b)).to_text() + ")")
+    s = s + kv("HSL", "hsl(" + to_int(math.round(hsl[0])).to_text() + ", " + to_int(math.round(hsl[1])).to_text() + "%, " + to_int(math.round(hsl[2])).to_text() + "%)")
+    let cw = contrast(l, 1.0)
+    let cb = contrast(l, 0.0)
+    s = s + kv("Contrast on white", kit.num_fmt(cw, 2) + " : 1  " + kit.sel(cw >= 7.0, "AAA", kit.sel(cw >= 4.5, "AA", kit.sel(cw >= 3.0, "large text only", "fails"))))
+    s = s + kv("Contrast on black", kit.num_fmt(cb, 2) + " : 1  " + kit.sel(cb >= 7.0, "AAA", kit.sel(cb >= 4.5, "AA", kit.sel(cb >= 3.0, "large text only", "fails"))))
+    s = s + "<div class=\"ramp\">"
+    for step in [92.0, 80.0, 66.0, 52.0, 40.0, 28.0, 16.0] {
+        let v = hsl_to_rgb(hsl[0], hsl[1], step)
+        let c = "#" + hex2(to_int(math.round(v[0]))) + hex2(to_int(math.round(v[1]))) + hex2(to_int(math.round(v[2])))
+        s = s + "<button style=\"background:" + c + "\" title=\"" + c + "\" data-act=\"st.copy\" data-a=\"" + kit.jattr(["text": c]) + "\"></button>"
+    }
+    give card(s + "</div>")
+}
+
+~~ ---------------------------------------------------------------- diff
+fn diff_tool(input: Text) -> Text {
+    var left: [Text] = []
+    var right: [Text] = []
+    var seen = false
+    for line in input.split("\n") {
+        if line.trim() == "---" and not seen { seen = true; skip }
+        if seen { right.push(line) } else { left.push(line) }
+    }
+    if not seen { give bad("Put a line containing only --- between the old and the new text.") }
+    if left.len() > 500 or right.len() > 500 { give bad("Compare handles up to 500 lines each side.") }
+    let n = left.len()
+    let m = right.len()
+    ~~ longest common subsequence table, row by row
+    var table: [Int] = []
+    var i = 0
+    while i < (n + 1) * (m + 1) { table.push(0); i = i + 1 }
+    i = n - 1
+    while i >= 0 {
+        var j = m - 1
+        while j >= 0 {
+            if left[i] == right[j] { table[i * (m + 1) + j] = table[(i + 1) * (m + 1) + j + 1] + 1 }
+            else { table[i * (m + 1) + j] = kit.sel_i(table[(i + 1) * (m + 1) + j] > table[i * (m + 1) + j + 1], table[(i + 1) * (m + 1) + j], table[i * (m + 1) + j + 1]) }
+            j = j - 1
+        }
+        i = i - 1
+    }
+    var out = "<div class=\"diff\">"
+    var added = 0
+    var removed = 0
+    i = 0
+    var j = 0
+    while i < n or j < m {
+        if i < n and j < m and left[i] == right[j] { out = out + "<div class=\"dl\"><i> </i>" + kit.esc(left[i]) + "</div>"; i = i + 1; j = j + 1 }
+        else if j < m and (i >= n or table[i * (m + 1) + j + 1] >= table[(i + 1) * (m + 1) + j]) { out = out + "<div class=\"dl add\"><i>+</i>" + kit.esc(right[j]) + "</div>"; j = j + 1; added = added + 1 }
+        else { out = out + "<div class=\"dl del\"><i>−</i>" + kit.esc(left[i]) + "</div>"; i = i + 1; removed = removed + 1 }
+    }
+    give card("<div class=\"small muted\" style=\"margin-bottom:8px\">" + added.to_text() + " added, " + removed.to_text() + " removed</div>" + out + "</div>")
+}
+
+~~ ----------------------------------------------------------------- run
+fn title_case(t: Text) -> Text {
+    var out: [Text] = []
+    for w in t.split(" ") {
+        if w == "" { out.push(w); skip }
+        out.push(w.slice(0, 1).upper() + w.slice(1, w.len()).lower())
+    }
+    give out.join(" ")
+}
+
+fn slug(t: Text) -> Text {
+    var s = ""
+    var dash = false
+    for c in t.lower().chars() {
+        if (c >= "a" and c <= "z") or (c >= "0" and c <= "9") { s = s + c; dash = false }
+        else if not dash and s != "" { s = s + "-"; dash = true }
+    }
+    if s.ends_with("-") { s = s.slice(0, s.len() - 1) }
+    give s
+}
+
+pub fn run(id: Text, opt: Text, input: Text) -> Text {
+    if id == "calc" {
+        let t = input.trim()
+        if t == "" { give "" }
+        let r = units.answer(t)
+        if r.ok { give card("<div class=\"big\">" + kit.esc(r.text) + "</div><div class=\"small muted\">" + kit.esc(r.note) + "</div>") }
+        let e = calc.evaluate(t)
+        if e.ok { give card("<div class=\"big\">" + kit.esc(e.text) + "</div>") }
+        give bad("That doesn't look like a sum or a conversion yet.")
+    }
+    if id == "json" {
+        if input.trim() == "" { give "" }
+        let v = json.parse(input)
+        if v == nil { give bad("That isn't valid JSON. Check commas, quotes and brackets.") }
+        give card(pre(kit.sel(opt == "minify", json.write(v ?? ""), json.pretty(v ?? ""))))
+    }
+    if id == "base64" {
+        if input == "" { give "" }
+        if opt == "decode" {
+            let o = shell_in("tr -d '[:space:]' < {{F}} | (base64 -d 2>/dev/null || base64 -D 2>/dev/null)", input)
+            if o == "" { give bad("That isn't valid Base64.") }
+            give card(pre(o))
+        }
+        give card(pre(shell_in("base64 < {{F}} | tr -d '\\n'", input)))
+    }
+    if id == "url" {
+        if input == "" { give "" }
+        if opt == "decode" { give card(pre(shell_in("perl -pe 's/\\+/ /g; s/%([0-9A-Fa-f]{2})/chr(hex($1))/ge' < {{F}}", input))) }
+        give card(pre(shell_in("perl -pe 's/([^A-Za-z0-9_.~-])/sprintf(\"%%%02X\",ord($1))/ge' < {{F}}", input)))
+    }
+    if id == "hash" {
+        if input == "" { give "" }
+        if opt == "crc32" { give card(kv("CRC-32", to_text(hash.crc32(input)))) }
+        give card(kv("SHA-256", to_text(hash.sha256(input))) + kv("Length", input.len().to_text() + " characters"))
+    }
+    if id == "color" { give color_tool(input) }
+    if id == "secret" {
+        let n = kit.clamp_i(input.trim().to_int() ?? 20, 4, 128)
+        if opt == "uuid" { give card(pre(sys.run("uuidgen").trim().lower())) }
+        if opt == "token" { give card(pre(sys.run("head -c 96 /dev/urandom | base64 | tr -dc 'a-f0-9A-F' | head -c " + (n * 2).to_text()).trim())) }
+        let pw = sys.run("head -c 600 /dev/urandom | base64 | tr -dc 'A-Za-z0-9!#$%*+=?@^_' | head -c " + n.to_text()).trim()
+        give card(pre(pw) + "<div class=\"small muted\">" + n.to_text() + " characters, about " + to_int(math.round(to_num(n) * 5.9)).to_text() + " bits. Made here, never sent anywhere.</div>")
+    }
+    if id == "text" {
+        if input == "" { give "" }
+        if opt == "UPPER" { give card(pre(input.upper())) }
+        if opt == "lower" { give card(pre(input.lower())) }
+        if opt == "Title" { give card(pre(title_case(input))) }
+        if opt == "reverse" { give card(pre(input.reverse())) }
+        if opt == "slug" { give card(pre(slug(input))) }
+        if opt == "sort" { give card(pre(input.split("\n").sort().join("\n"))) }
+        if opt == "unique" {
+            var seen = set(["\u0001"])
+            var keep: [Text] = []
+            for l in input.split("\n") { if not seen.has(l) { seen.add(l); keep.push(l) } }
+            give card(pre(keep.join("\n")))
+        }
+        let words = kit.words_of(input.replace("\n", " "))
+        give card(kv("Words", words.len().to_text()) + kv("Characters", input.len().to_text()) + kv("Lines", input.split("\n").len().to_text()) + kv("Reading time", kit.num_fmt(to_num(words.len()) / 230.0, 1) + " min"))
+    }
+    if id == "time" {
+        var t = time.now()
+        let s = input.trim()
+        if s != "" { t = s.to_num() ?? time.now() }
+        if t > 100000000000.0 { t = t / 1000.0 }
+        give card(kv("Local", time.format(t, "%A, %B %d %Y  %H:%M:%S")) + kv("Seconds", to_int(t).to_text()) + kv("Milliseconds", (to_int(t) * 1000).to_text()) + kv("ISO date", time.format(t, "%Y-%m-%d")) + kv("How long ago", kit.ago(t)))
+    }
+    if id == "markdown" {
+        if input == "" { give "" }
+        let c = guide.Chapter { body: input }
+        give "<div class=\"tl-res md\">" + guide.render(c) + "</div>"
+    }
+    if id == "diff" { give diff_tool(input) }
+    give ""
+}
+
+~~ ------------------------------------------------------------- the page
+pub fn nav(active: Text) -> Text {
+    var s = ""
+    for d in defs() {
+        s = s + "<button class=\"tl-i" + kit.sel(d.id == active, " on", "") + "\" data-act=\"st.tool.pick\" data-a=\"" + kit.jattr(["tool": d.id]) + "\"><span class=\"tl-ic\">" + icons.svg(d.icon) + "</span><span><b>" + d.name + "</b><small>" + d.about + "</small></span></button>"
+    }
+    give s
+}
+
+pub fn body(a: state.App, id: Text) -> Text {
+    let d = def_of(id)
+    let opt = kit.gt_or(a.studio, "tool_opt_" + id, first_opt(d))
+    let input = kit.gt(a.studio, "tool_in_" + id)
+    var s = "<div class=\"tl-h\"><h2>" + d.name + "</h2><p class=\"muted\">" + d.about + "</p></div>"
+    if d.opts.len() > 0 {
+        s = s + "<div class=\"seg\">"
+        for o in d.opts { s = s + "<button class=\"" + kit.sel(o == opt, "on", "") + "\" data-act=\"st.tool.opt\" data-a=\"" + kit.jattr(["tool": id, "opt": o]) + "\">" + o + "</button>" }
+        s = s + "</div>"
+    }
+    s = s + "<textarea id=\"tin\" class=\"tl-in\" rows=\"" + d.rows.to_text() + "\" spellcheck=\"false\" placeholder=\"" + kit.esc(d.hint) + "\" data-input=\"st.tool.run\" data-wait=\"120\" data-a=\"" + kit.jattr(["tool": id]) + "\">" + kit.esc(input) + "</textarea>"
+    if id == "secret" { s = s + "<button class=\"btn pri\" data-act=\"st.tool.run\" data-a=\"" + kit.jattr(["tool": id]) + "\" data-from=\"#tin\">" + icons.svg("spark") + "Generate</button>" }
+    s = s + "<div data-region=\"tool-out\">" + run(id, opt, input) + "</div>"
+    give s
+}

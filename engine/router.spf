@@ -1,0 +1,582 @@
+~~ =====================================================================
+~~  Sreon — router
+~~
+~~  Every request from the window arrives here as a map and leaves as a
+~~  map. This is where a click becomes a decision.
+~~
+~~      boot      first call: settings, shortcuts, what to build
+~~      page      the HTML for a sreon:// address
+~~      act       something happened on a page (click, typing, key)
+~~      tabs      the window's tab list changed
+~~      nav       may this address be opened, or should it change?
+~~      digest    the window read a page and hands over what it found
+~~      rules     the Shield lists for the web engine
+~~      scripts   the scripts and styles to put into web pages
+~~ =====================================================================
+module router
+
+use std.json
+use std.time
+use std.fs
+use kit
+use icons
+use settings
+use store
+use state
+use theme
+use omnibox
+use shield
+use views
+use pages
+use reader
+use assets
+use studio
+
+pub fn map_of(v: Any) -> Map<Text, Any> {
+    let m: Map<Text, Any> = v
+    give m
+}
+
+fn bool_of(v: Any) -> Bool {
+    let t = to_text(v)
+    give t == "true" or t == "1"
+}
+
+~~ ------------------------------------------------------------- sizes
+fn host_layout(r: state.Reply) { r.do(["do": "layout"]) }
+
+fn tab_ids(a: state.App) -> [Int] {
+    var out: [Int] = []
+    for t in a.tabs { out.push(t.id) }
+    give out
+}
+
+~~ ------------------------------------------------------------ settings
+fn rules_keys() -> [Text] { give ["shield", "level", "ads", "trackers", "social", "cookies", "annoy", "video_ads", "miners", "allow", "custom_rules"] }
+fn layout_keys() -> [Text] { give ["side", "side_width", "side_mode", "panel_width", "glass", "workspaces", "toolbar_labels"] }
+fn web_keys() -> [Text] { give ["js", "images", "ua", "block_autoplay", "dark_pages", "gpc", "popups", "https", "strip", "inspect", "notifs", "sleep", "sleep_min"] }
+
+pub fn apply_setting(a: state.App, key: Text, r: state.Reply) {
+    state.save_settings(a)
+    var look = false
+    for k in ["theme", "accent", "accent2", "gradient", "font", "scale", "radius", "blur", "density", "motion", "nt_bg", "nt_custom", "workspaces", "side_mode", "site_icons", "tab_close_hover", "toolbar_labels"] { if k == key { look = true } }
+    for k in rules_keys() { if k == key { r.do(["do": "rules"]) } }
+    for k in layout_keys() { if k == key { host_layout(r) } }
+    for k in web_keys() { if k == key { r.do(["do": "webconfig"]) } }
+    if key == "dark_pages" or key == "gpc" or key == "cookies" or key == "video_ads" { r.do(["do": "webconfig"]) }
+    if look or key == "side" { r.do(["do": "theme"]) }
+    if key == "theme" { r.do(["do": "appearance"]) }
+}
+
+fn set_value(a: state.App, key: Text, raw: Any, r: state.Reply) {
+    let d = settings.def_of(key)
+    if d.key == "" { give }
+    a.s.set(key, settings.coerce(d, raw))
+    apply_setting(a, key, r)
+}
+
+fn settings_region(a: state.App, group: Text, r: state.Reply) {
+    r.region("body", pages.settings_body(a, group))
+}
+
+~~ --------------------------------------------------------------- bar
+fn recompute(a: state.App, q: Text) {
+    a.pal_q = q
+    a.pal_items = omnibox.suggest(a, q)
+    a.pal_sel = 0
+}
+
+fn hide_bar(r: state.Reply) { r.do(["do": "palette", "show": false]) }
+
+fn run_item(a: state.App, it: state.Item, meta: Bool, r: state.Reply) {
+    hide_bar(r)
+    if it.act == "open" { r.do(state.host_open(it.arg, kit.sel(meta, "tab", "here"))) }
+    else if it.act == "tab.select" { r.do(["do": "select", "id": it.arg.to_int() ?? 0]) }
+    else if it.act == "copy" { r.do(["do": "copy", "text": it.arg]); r.toast = "Copied " + it.arg }
+    else if it.act == "cmd" { run_command(a, it.arg, r) }
+}
+
+fn pick(a: state.App, i: Int, meta: Bool, r: state.Reply) {
+    if i >= 0 and i < a.pal_items.len() { run_item(a, a.pal_items[i], meta, r) }
+}
+
+fn bar_key(a: state.App, args: Map<Text, Any>, r: state.Reply) {
+    let key = kit.gt(args, "key")
+    let value = kit.gt(args, "value")
+    if value != a.pal_q and key != "Enter" and key != "Escape" { recompute(a, value) }
+    let n = a.pal_items.len()
+    if key == "ArrowDown" or (key == "n" and kit.gb(args, "ctrl", false)) or key == "Tab" {
+        if n > 0 { a.pal_sel = (a.pal_sel + 1) % n }
+        r.region("list", views.palette_items(a))
+        r.scroll = "#r" + a.pal_sel.to_text()
+    } else if key == "ArrowUp" or (key == "p" and kit.gb(args, "ctrl", false)) {
+        if n > 0 { a.pal_sel = (a.pal_sel + n - 1) % n }
+        r.region("list", views.palette_items(a))
+        r.scroll = "#r" + a.pal_sel.to_text()
+    } else if key == "Escape" {
+        hide_bar(r)
+    } else if key == "Enter" {
+        if value != a.pal_q { recompute(a, value) }
+        if a.pal_items.len() > 0 { pick(a, a.pal_sel, kit.gb(args, "meta", false), r) }
+        else {
+            let v = omnibox.classify(a, value)
+            hide_bar(r)
+            r.do(state.host_open(v.url, kit.sel(kit.gb(args, "meta", false), "tab", "here")))
+        }
+    }
+}
+
+~~ ------------------------------------------------------------ commands
+fn toggle_setting(a: state.App, key: Text, r: state.Reply) {
+    a.s.set(key, not kit.gb(a.s, key, false))
+    apply_setting(a, key, r)
+}
+
+~~ Hides the sidebar, or brings it back in the style it had before.
+fn toggle_sidebar(a: state.App, r: state.Reply) {
+    let mode = settings.str(a.s, "side_mode")
+    if mode == "hidden" {
+        var back = kit.gt(a.s, "side_last")
+        if back == "" or back == "hidden" { back = "expanded" }
+        a.s.set("side_mode", back)
+    } else {
+        a.s.set("side_last", mode)
+        a.s.set("side_mode", "hidden")
+    }
+    apply_setting(a, "side_mode", r)
+    r.do(["do": "refresh"])
+}
+
+fn md_escape(t: Text) -> Text => t.replace("[", "\\[").replace("]", "\\]")
+
+pub fn run_command(a: state.App, id: Text, r: state.Reply) {
+    let t = state.current(a)
+    if id == "new_tab" { r.do(state.host_open("sreon://newtab", "tab")) }
+    else if id == "close_tab" { r.do(["do": "close", "id": a.active]) }
+    else if id == "reopen_tab" {
+        if a.closed.len() > 0 {
+            let u = a.closed.pop() ?? ""
+            r.do(state.host_open(u, "tab"))
+        } else { r.toast = "No closed tabs to reopen" }
+    }
+    else if id == "duplicate_tab" { r.do(state.host_open(t.url, "tab")) }
+    else if id == "pin_tab" { r.do(["do": "pin", "id": a.active]) }
+    else if id == "sleep_tab" { r.do(["do": "sleep", "id": a.active]) }
+    else if id == "sleep_others" { r.do(["do": "sleep_others"]) }
+    else if id == "close_others" { r.do(["do": "close_others"]) }
+    else if id == "reload" { r.do(["do": "go", "what": "reload"]) }
+    else if id == "back" { r.do(["do": "go", "what": "back"]) }
+    else if id == "forward" { r.do(["do": "go", "what": "forward"]) }
+    else if id == "home" { r.do(state.host_open(a.home, "here")) }
+    else if id == "toggle_sidebar" { toggle_sidebar(a, r) }
+    else if id == "toggle_panel" { a.panel_open = not a.panel_open; r.do(["do": "panel", "show": a.panel_open, "tab": a.panel_tab]) }
+    else if id.starts_with("panel_") { a.panel_tab = id.slice(6, id.len()); a.panel_open = true; r.do(["do": "panel", "show": true, "tab": a.panel_tab]); if a.panel_tab == "brief" and a.brief_html == "" { r.do(["do": "extract", "then": "brief"]) } }
+    else if id == "reader" { r.do(["do": "extract", "then": "reader"]); r.toast = "Making it readable…" }
+    else if id == "focus" { a.focus_on = not a.focus_on; r.toast = kit.sel(a.focus_on, "Focus mode on", "Focus mode off"); r.do(["do": "refresh"]) }
+    else if id == "timer_25" or id == "timer_5" {
+        let mins = kit.sel_i(id == "timer_25", 25, 5)
+        a.timer_end = kit.now_ms() + mins * 60000
+        a.timer_kind = kit.sel(id == "timer_25", "focus", "break")
+        a.focus_on = id == "timer_25"
+        a.panel_tab = "focus"; a.panel_open = true
+        r.do(["do": "panel", "show": true, "tab": "focus"])
+        r.do(["do": "refresh"])
+        r.toast = kit.sel(id == "timer_25", "Focus for 25 minutes", "Break for 5 minutes")
+    }
+    else if id == "timer_stop" { a.timer_end = 0; a.focus_on = false; r.do(["do": "refresh"]); r.toast = "Timer stopped" }
+    else if id == "find" { r.do(["do": "find"]) }
+    else if id == "zoom_in" or id == "zoom_out" or id == "zoom_reset" {
+        let host = kit.site_of(t.url)
+        var level = kit.gn(a.zoom, host, 1.0)
+        if id == "zoom_in" { level = level + 0.1 }
+        else if id == "zoom_out" { level = level - 0.1 }
+        else { level = 1.0 }
+        if level < 0.3 { level = 0.3 }
+        if level > 4.0 { level = 4.0 }
+        a.zoom.set(host, level)
+        store.write("zoom", a.zoom)
+        r.do(["do": "zoom", "level": level])
+        r.toast = "Zoom " + to_int(level * 100.0 + 0.5).to_text() + "% on " + host
+    }
+    else if id == "split" { r.do(["do": "split"]) }
+    else if id == "screenshot" { r.do(["do": "screenshot"]) }
+    else if id == "save_pdf" { r.do(["do": "pdf"]) }
+    else if id == "print" { r.do(["do": "print"]) }
+    else if id == "copy_link" {
+        var u = t.url
+        if settings.flag(a.s, "clean_copy") { u = omnibox.clean_url(u) }
+        r.do(["do": "copy", "text": u])
+        r.toast = kit.sel(u != t.url, "Copied, with the tracking removed", "Link copied")
+    }
+    else if id == "copy_markdown" {
+        r.do(["do": "copy", "text": "[" + md_escape(state.brand_title(t.title, t.url)) + "](" + omnibox.clean_url(t.url) + ")"])
+        r.toast = "Copied as Markdown"
+    }
+    else if id == "bookmark" {
+        if t.url == "" or t.url.starts_with("sreon://newtab") { r.toast = "Open a page to bookmark it" }
+        else if state.is_bookmarked(a, t.url) {
+            var kept: [Any] = []
+            for b in a.bookmarks { let m = map_of(b); if kit.gt(m, "u") != t.url { kept.push(m) } }
+            a.bookmarks = kept
+            state.save_bookmarks(a)
+            r.toast = "Bookmark removed"
+        } else {
+            a.bookmarks.push(["u": t.url, "t": state.brand_title(t.title, t.url), "at": time.now()])
+            state.save_bookmarks(a)
+            r.toast = "Bookmarked"
+        }
+        r.do(["do": "refresh"])
+    }
+    else if id == "shield_site" { toggle_site_shield(a, r) }
+    else if id == "dark_pages" { toggle_setting(a, "dark_pages", r); r.toast = kit.sel(settings.flag(a.s, "dark_pages"), "Dark mode for websites on", "Dark mode for websites off") }
+    else if id == "settings" { r.do(state.host_open("sreon://settings", "tab")) }
+    else if id == "history" { r.do(state.host_open("sreon://history", "tab")) }
+    else if id == "bookmarks" { r.do(state.host_open("sreon://bookmarks", "tab")) }
+    else if id == "downloads" { r.do(state.host_open("sreon://downloads", "tab")) }
+    else if id == "shield_page" { r.do(state.host_open("sreon://shield", "tab")) }
+    else if id == "studio" { r.do(state.host_open("sreon://studio", "tab")) }
+    else if id == "guide" { r.do(state.host_open("sreon://studio?tab=guide", "tab")) }
+    else if id == "whiteboard" { r.do(state.host_open("sreon://studio?tab=board", "tab")) }
+    else if id == "tools" { r.do(state.host_open("sreon://studio?tab=tools", "tab")) }
+    else if id == "about" { r.do(state.host_open("sreon://about", "tab")) }
+    else if id == "new_window" { r.do(["do": "window", "private": false]) }
+    else if id == "private" { r.do(["do": "window", "private": true]) }
+    else if id == "clear_data" { r.do(["do": "clear_data"]); r.toast = "Cache and cookies cleared" }
+    else if id.starts_with("theme_") { a.s.set("theme", id.slice(6, id.len())); apply_setting(a, "theme", r) }
+    else if id == "fullscreen" { r.do(["do": "fullscreen"]) }
+}
+
+fn toggle_site_shield(a: state.App, r: state.Reply) {
+    let t = state.current(a)
+    let host = kit.host_of(t.url)
+    if host == "" or t.url.starts_with("sreon://") { r.toast = "Open a website first"; give }
+    a.s.set("allow", shield.toggle_site(a.s, host))
+    apply_setting(a, "allow", r)
+    r.do(["do": "refresh"])
+    r.do(["do": "go", "what": "reload"])
+    r.toast = kit.sel(shield.per_site_off(a.s, host), "Shield off for " + kit.site_of(t.url), "Shield on for " + kit.site_of(t.url))
+}
+
+~~ --------------------------------------------------------------- acts
+pub fn act(a: state.App, view: Text, name: Text, args: Map<Text, Any>) -> state.Reply {
+    var r = state.Reply { }
+    let id = kit.gi(args, "id", 0)
+
+    ~~ the three chrome views redraw whole on request
+    if name == "refresh" {
+        r.theme = theme.css(a.s, a.system_dark)
+        if view == "sidebar" { r.region("root", views.sidebar(a)) }
+        else if view == "toolbar" { r.region("root", views.toolbar(a, kit.gb(args, "pad", false))) }
+        else if view == "panel" { r.region("root", views.panel(a)) }
+        give r
+    }
+    if name.starts_with("push:") {
+        let what = name.slice(5, name.len())
+        if what == "theme" { r.theme = theme.css(a.s, kit.gb(args, "dark", true)) }
+        give r
+    }
+
+    ~~ ---- tabs
+    if name == "tab.select" { r.do(["do": "select", "id": id]); give r }
+    if name == "tab.close" { r.do(["do": "close", "id": id]); give r }
+    if name == "tab.new" { r.do(state.host_open("sreon://newtab", "tab")); give r }
+    if name == "tab.pin" { r.do(["do": "pin", "id": id]); give r }
+    if name == "tab.sleep" { r.do(["do": "sleep", "id": id]); give r }
+    if name == "tab.dup" { r.do(state.host_open(state.tab_by_id(a, id).url, "tab")); give r }
+    if name == "tab.copy" { r.do(["do": "copy", "text": omnibox.clean_url(state.tab_by_id(a, id).url)]); r.toast = "Link copied"; give r }
+    if name == "tab.closeothers" { r.do(["do": "close_others", "id": id]); give r }
+    if name == "tab.move" { r.do(["do": "move_ws", "id": id, "ws": kit.gt(args, "ws")]); give r }
+    if name == "ws.select" { a.ws = kit.gt(args, "name"); r.do(["do": "workspace", "name": a.ws]); r.do(["do": "refresh"]); give r }
+    if name == "ws.add" {
+        let n = "Space " + (a.workspaces.len() + 1).to_text()
+        a.workspaces.push(n)
+        store.write("workspaces", a.workspaces)
+        a.ws = n
+        r.do(["do": "refresh"])
+        give r
+    }
+    if name == "ws.rename" or name == "ws.delete" {
+        let nm = kit.gt(args, "name")
+        if name == "ws.delete" and a.workspaces.len() > 1 {
+            var kept: [Text] = []
+            for w in a.workspaces { if w != nm { kept.push(w) } }
+            a.workspaces = kept
+            store.write("workspaces", kept)
+            a.ws = kept[0]
+            r.do(["do": "workspace", "name": a.ws])
+            r.do(["do": "refresh"])
+        }
+        give r
+    }
+    if name == "open" { r.do(state.host_open(kit.gt(args, "url"), kit.gt_or(args, "where", "here"))); give r }
+    if name == "go" { r.do(["do": "go", "what": kit.gt(args, "do")]); give r }
+    if name == "cmd" { run_command(a, kit.gt(args, "id"), r); if view == "palette" { hide_bar(r) }; give r }
+    if name == "host.sidebar" { toggle_sidebar(a, r); give r }
+    if name == "panel.show" { a.panel_tab = kit.gt(args, "tab"); a.panel_open = true; r.do(["do": "panel", "show": true, "tab": a.panel_tab]); give r }
+    if name == "panel.tab" {
+        a.panel_tab = kit.gt(args, "tab")
+        r.region("root", views.panel(a))
+        if a.panel_tab == "brief" and a.brief_html == "" { r.do(["do": "extract", "then": "brief"]) }
+        give r
+    }
+    if name == "shield.site" { toggle_site_shield(a, r); give r }
+
+    ~~ ---- the bar
+    if name == "palette.open" {
+        var fill = ""
+        if kit.gb(args, "fill", false) {
+            let t = state.current(a)
+            if t.url != "" and not t.url.starts_with("sreon://newtab") { fill = t.url }
+        }
+        recompute(a, fill)
+        r.do(["do": "palette", "show": true, "fill": fill])
+        give r
+    }
+    if name == "palette.q" { recompute(a, kit.gt(args, "value")); r.region("list", views.palette_items(a)); give r }
+    if name == "palette.key" { bar_key(a, args, r); give r }
+    if name == "palette.pick" { pick(a, kit.gi(args, "i", 0), kit.gb(args, "meta", false), r); give r }
+    if name == "nt.go" {
+        let v = omnibox.classify(a, kit.gt(args, "value"))
+        r.do(state.host_open(v.url, "here"))
+        give r
+    }
+
+    ~~ ---- settings
+    if name == "set" {
+        let key = kit.gt(args, "key")
+        set_value(a, key, args.get("value") ?? "", r)
+        if view == "settings" {
+            var group = settings.def_of(key).group
+            settings_region(a, group, r)
+        } else if view == "panel" { r.region("root", views.panel(a)) }
+        else if view == "shield" { r.reload = true }
+        give r
+    }
+    if name == "set.live" {
+        let key = kit.gt(args, "key")
+        let d = settings.def_of(key)
+        if d.key == "" { give r }
+        a.s.set(key, settings.coerce(d, args.get("value") ?? ""))
+        r.region("v_" + key, to_text(a.s.get(key) ?? ""))
+        r.theme = theme.css(a.s, a.system_dark)
+        for k in layout_keys() { if k == key { host_layout(r) } }
+        give r
+    }
+    if name == "set.text" {
+        let key = kit.gt(args, "key")
+        set_value(a, key, args.get("value") ?? "", r)
+        give r
+    }
+    if name == "accent.preset" {
+        a.s.set("accent", kit.gt(args, "a"))
+        a.s.set("accent2", kit.gt(args, "b"))
+        apply_setting(a, "accent", r)
+        settings_region(a, "appearance", r)
+        give r
+    }
+    if name == "settings.group" { settings_region(a, kit.gt(args, "g"), r); r.region("nav", settings_nav(a, kit.gt(args, "g"))); give r }
+    if name == "keys.set" {
+        var m = store.read_map("shortcuts")
+        m.set(kit.gt(args, "id"), kit.gt(args, "value").trim().lower())
+        store.write("shortcuts", m)
+        a.keys = settings.shortcuts()
+        r.do(["do": "menu"])
+        r.toast = "Shortcut saved"
+        give r
+    }
+    if name == "keys.reset" { store.remove("shortcuts"); a.keys = settings.shortcuts(); r.do(["do": "menu"]); settings_region(a, "keys", r); r.toast = "Shortcuts restored"; give r }
+    if name == "settings.export" { r.do(["do": "copy", "text": json.pretty(a.s)]); r.toast = "Settings copied"; give r }
+    if name == "settings.import" { r.do(["do": "paste_settings"]); give r }
+    if name == "settings.reset" {
+        a.s = settings.defaults()
+        state.save_settings(a)
+        r.do(["do": "rules"]); r.do(["do": "webconfig"]); r.do(["do": "theme"]); r.do(["do": "layout"]); r.do(["do": "appearance"])
+        r.reload = true
+        r.toast = "Everything is back to how it came"
+        give r
+    }
+
+    ~~ ---- lists
+    if name == "history.q" { r.region("list", pages.history_list(a, kit.gt(args, "value"))); give r }
+    if name == "history.clear" { a.history = []; state.save_history(a); r.region("list", pages.history_list(a, "")); r.toast = "History cleared"; give r }
+    if name == "bookmark.remove" {
+        var kept: [Any] = []
+        for b in a.bookmarks { let m = map_of(b); if kit.gt(m, "u") != kit.gt(args, "u") { kept.push(m) } }
+        a.bookmarks = kept
+        state.save_bookmarks(a)
+        r.region("list", pages.bookmarks_list(a))
+        r.do(["do": "refresh"])
+        give r
+    }
+    if name == "download.show" { r.do(["do": "reveal", "path": kit.gt(args, "path")]); give r }
+
+    ~~ ---- notes, focus, timer
+    if name == "notes.save" {
+        a.notes.set(kit.gt(args, "key"), kit.gt(args, "value"))
+        state.save_notes(a)
+        give r
+    }
+    if name == "notes.scope" {
+        var key = kit.gt(args, "key")
+        if key == "" { key = "_global" }
+        a.notes.set("_scope", key)
+        let have = kit.gt(a.notes, key)
+        var h = "<div class=\"row\"><b class=\"grow\">" + kit.sel(key == "_global", "Scratchpad", "Notes for " + kit.esc(key)) + "</b></div><textarea style=\"min-height:300px;font-family:var(--font)\" data-input=\"notes.save\" data-wait=\"350\" data-a=\"" + kit.jattr(["key": key]) + "\">" + kit.esc(have) + "</textarea>"
+        r.region("pnbody", h)
+        give r
+    }
+    if name == "focus.toggle" { a.focus_on = bool_of(args.get("value") ?? false); r.do(["do": "refresh"]); r.region("pnbody", views.panel_focus(a)); give r }
+    if name == "focus.off" { a.focus_on = false; a.timer_end = 0; r.do(["do": "refresh"]); r.do(["do": "go", "what": "back"]); give r }
+    if name == "focus.sites" { a.s.set("focus_sites", kit.gt(args, "value")); state.save_settings(a); give r }
+    if name == "timer.done" {
+        if a.timer_end > 0 and a.timer_end <= kit.now_ms() + 1500 {
+            let was = a.timer_kind
+            a.timer_end = 0
+            a.focus_on = false
+            r.do(["do": "notify", "title": kit.sel(was == "focus", "Focus complete", "Break over"), "body": kit.sel(was == "focus", "Take five. You earned it.", "Ready when you are.")])
+            r.do(["do": "refresh"])
+            r.region("pnbody", views.panel_focus(a))
+        }
+        give r
+    }
+
+    ~~ ---- brief and reader
+    if name == "brief.run" { r.do(["do": "extract", "then": "brief"]); r.region("pnbody", "<div class=\"empty\">" + icons.svg("spark") + "<p>Reading the page…</p></div>"); give r }
+    if name == "brief.copy" { r.do(["do": "copy", "text": a.brief_for]); r.toast = "Brief copied"; give r }
+    if name == "tools.q" {
+        let ans = omnibox.suggest(a, kit.gt(args, "value"))
+        var h = ""
+        if ans.len() > 0 and ans[0].kind == "answer" { h = "<div class=\"card\" style=\"margin-top:8px\"><div style=\"font-size:1.6rem;font-weight:650\">" + kit.esc(ans[0].title) + "</div><div class=\"small muted\">" + kit.esc(ans[0].sub) + "</div></div>" }
+        r.region("toolans", h)
+        give r
+    }
+    if name == "reader.size" { r.attrs = ["#rb": ["style": "font-size:calc(1.28rem * " + kit.sel(kit.gi(args, "d", 0) > 0, "1.15", "0.88") + ")"]]; give r }
+    if name == "reader.font" { r.attrs = ["#rb": ["style": "font-family:var(--font)"]]; give r }
+
+    ~~ ---- everything else belongs to Studio
+    if view == "studio" or name.starts_with("st.") or name.starts_with("board.") or name.starts_with("tool.") or name.starts_with("guide.") {
+        give studio.act(a, name, args)
+    }
+    give r
+}
+
+fn settings_nav(_a: state.App, group: Text) -> Text {
+    var nav = "<div class=\"set-nav\"><div class=\"brand\" style=\"padding:.2rem .75rem 1rem\">" + icons.mark(26) + "<span>Settings</span></div>"
+    for g in settings.groups() {
+        nav = nav + "<button" + kit.sel(g[0] == group, " class=\"on\"", "") + views.act("settings.group", ["g": g[0]]) + "><span class=\"gl\">" + views.ic(g[2]) + "</span>" + g[1] + "</button>"
+    }
+    give nav + "</div>"
+}
+
+~~ -------------------------------------------------------------- pages
+pub object Served {
+    mime: Text = "text/html; charset=utf-8"
+    body: Text = ""
+    status: Int = 200
+}
+
+fn query_param(url: Text, key: Text) -> Text {
+    for pair in kit.query_of(url).split("&") {
+        let eq = pair.index_of("=")
+        if eq > 0 and pair.slice(0, eq) == key { give http_decode(pair.slice(eq + 1, pair.len())) }
+    }
+    give ""
+}
+
+fn http_decode(t: Text) -> Text {
+    let cs = t.replace("+", " ").chars()
+    var i = 0
+    var plain = true
+    while i < cs.len() {
+        if cs[i] == "%" and i + 2 < cs.len() + 0 {
+            plain = false
+        }
+        i = i + 1
+    }
+    if plain { give t.replace("+", " ") }
+    give decode_percent(t.replace("+", " "))
+}
+
+fn hexv(c: Text) -> Int {
+    if c >= "0" and c <= "9" { give c.code_at(0) - 48 }
+    if c >= "a" and c <= "f" { give c.code_at(0) - 87 }
+    if c >= "A" and c <= "F" { give c.code_at(0) - 55 }
+    give -1
+}
+
+~~ Percent-decoding that keeps multi-byte characters whole: collect the
+~~ bytes, then let the text type read them as UTF-8 through a round trip
+~~ the language gives us for ASCII, and pass the rest through untouched.
+fn decode_percent(t: Text) -> Text {
+    let cs = t.chars()
+    var out = ""
+    var i = 0
+    while i < cs.len() {
+        if cs[i] == "%" and i + 2 < cs.len() + 1 and i + 2 <= cs.len() - 1 {
+            let h = hexv(cs[i + 1])
+            let l = hexv(cs[i + 2])
+            if h >= 0 and l >= 0 {
+                let v = h * 16 + l
+                if v < 128 { out = out + char_of(v); i = i + 3; skip }
+            }
+        }
+        out = out + cs[i]
+        i = i + 1
+    }
+    give out
+}
+
+fn char_of(v: Int) -> Text {
+    let table = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz\{|\}~"
+    if v >= 32 and v <= 126 { give table.slice(v - 32, v - 31) }
+    if v == 10 { give "\n" }
+    if v == 9 { give "\t" }
+    give ""
+}
+
+pub fn page(a: state.App, url: Text, readers: Map<Text, Any>) -> Served {
+    var s = Served { }
+    var rest = url
+    if rest.starts_with("sreon://") { rest = rest.slice(8, rest.len()) }
+    var path = rest
+    let q = path.index_of("?")
+    if q >= 0 { path = path.slice(0, q) }
+    let h = path.index_of("#")
+    if h >= 0 { path = path.slice(0, h) }
+    while path.ends_with("/") { path = path.slice(0, path.len() - 1) }
+
+    if path.starts_with("assets/") {
+        let name = path.slice(7, path.len())
+        if name == "sreon.css" { s.mime = "text/css; charset=utf-8"; s.body = assets.sreon_css() }
+        else if name == "studio.css" { s.mime = "text/css; charset=utf-8"; s.body = assets.studio_css() }
+        else if name == "sreon.js" { s.mime = "application/javascript; charset=utf-8"; s.body = assets.sreon_js() }
+        else if name == "studio.js" { s.mime = "application/javascript; charset=utf-8"; s.body = assets.studio_js() }
+        else { s.status = 404; s.body = "not found" }
+        give s
+    }
+    if path == "" or path == "newtab" { s.body = pages.newtab(a) }
+    else if path == "settings" { s.body = pages.settings_page(a, kit.sel(query_param(url, "g") != "", query_param(url, "g"), "appearance")) }
+    else if path == "history" { s.body = pages.history_page(a) }
+    else if path == "bookmarks" { s.body = pages.bookmarks_page(a) }
+    else if path == "downloads" { s.body = pages.downloads_page(a) }
+    else if path == "shield" { s.body = pages.shield_page(a) }
+    else if path == "about" { s.body = pages.about_page(a) }
+    else if path == "error" { s.body = pages.error_page(a, query_param(url, "u"), query_param(url, "r")) }
+    else if path == "blocked" { s.body = pages.blocked_page(a, query_param(url, "h")) }
+    else if path.starts_with("reader/") {
+        let id = path.slice(7, path.len())
+        s.body = to_text(readers.get(id) ?? pages.error_page(a, "", "That reading view has expired."))
+    }
+    else if path == "studio" { s.body = studio.page(a, kit.query_of(url)) }
+    else if path == "chrome/sidebar" { s.body = chrome_doc(a, "sidebar", views.sidebar(a), "chrome") }
+    else if path == "chrome/toolbar" { s.body = chrome_doc(a, "toolbar", views.toolbar(a, query_param(url, "pad") == "1"), "chrome") }
+    else if path == "chrome/panel" { s.body = chrome_doc(a, "panel", views.panel(a), "chrome") }
+    else if path == "chrome/palette" { s.body = chrome_doc(a, "palette", views.palette(a, query_param(url, "fill")), "overlay") }
+    else { s.status = 404; s.body = pages.error_page(a, url, "There is no Sreon page called " + path + ".") }
+    give s
+}
+
+fn chrome_doc(a: state.App, view: Text, inner: Text, cls: Text) -> Text {
+    let escape = kit.sel(view == "palette", "palette.key", "")
+    give theme.document(a.s, view, "Sreon", cls, "", "<div data-region=\"root\">" + inner + "</div>", escape)
+}

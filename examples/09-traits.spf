@@ -1,0 +1,40 @@
+~~ Traits describe what a type can do.
+use std.io
+
+trait Shape {
+    fn area(self) -> Num
+    fn name(self) -> Text
+    fn describe(self) -> Text => "{self.name()} covering {self.area()}"
+}
+
+object Circle {
+    radius: Num = 1.0
+    fn area(self) -> Num => 3.14159 * self.radius * self.radius
+    fn name(self) -> Text => "circle"
+}
+
+object Rect {
+    w: Num = 1.0
+    h: Num = 1.0
+    fn area(self) -> Num => self.w * self.h
+    fn name(self) -> Text => "rectangle"
+}
+
+impl Shape for Circle {}
+impl Shape for Rect {}
+
+fn total_area(shapes: [Shape]) -> Num {
+    var total = 0.0
+    for s in shapes {
+        total = total + s.area()
+    }
+    give total
+}
+
+fn main() {
+    let shapes = [Circle { radius: 2.0 }, Rect { w: 3.0, h: 4.0 }]
+    for s in shapes {
+        io.say(s.describe())
+    }
+    io.say("total area {total_area(shapes)}")
+}

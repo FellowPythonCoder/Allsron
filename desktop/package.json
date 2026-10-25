@@ -1,0 +1,97 @@
+{
+  "name": "sreon",
+  "productName": "Sreon",
+  "version": "1.1.0",
+  "description": "A minimal browser whose every page and setting is written in SPRFST, a language made for it.",
+  "main": "main.js",
+  "author": "Sreon <hello@opensreon.com>",
+  "homepage": "https://opensreon.com",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/run.js && node test/electron-smoke.js",
+    "stage": "bash scripts/stage.sh",
+    "deb": "bash scripts/build-deb.sh",
+    "deb:amd64": "bash scripts/build-deb.sh amd64",
+    "deb:arm64": "bash scripts/build-deb.sh arm64",
+    "deb:all": "bash scripts/build-deb.sh all",
+    "smoke": "node test/electron-smoke.js"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "24.13.3"
+  },
+  "build": {
+    "appId": "com.opensreon.sreon",
+    "productName": "Sreon",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "preload-find.js",
+      "find.html",
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "stage/sreon",
+        "to": "sreon"
+      },
+      {
+        "from": "stage/bin",
+        "to": "bin"
+      }
+    ],
+    "linux": {
+      "target": [
+        "deb"
+      ],
+      "category": "Network",
+      "icon": "build/icon.png",
+      "executableName": "sreon",
+      "maintainer": "Sreon <hello@opensreon.com>",
+      "synopsis": "A minimal browser written in its own language",
+      "mimeTypes": [
+        "x-scheme-handler/http",
+        "x-scheme-handler/https",
+        "text/html"
+      ],
+      "desktop": {
+        "Name": "Sreon",
+        "Comment": "Browse the web",
+        "Keywords": "browser;web;internet;sreon;",
+        "StartupWMClass": "Sreon"
+      }
+    },
+    "deb": {
+      "packageName": "sreon",
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "perl"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "npmRebuild": false
+  }
+}

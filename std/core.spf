@@ -1,0 +1,60 @@
+~~ Helpers that every SPRFST program can lean on.
+~~ The language built-ins live in the runtime; this module adds the
+~~ small conveniences that are easier to read as SPRFST source.
+module std.core
+
+use std.math
+
+~~ Keep a number inside a range.
+pub fn between(value: Num, low: Num, high: Num) -> Bool => value >= low and value <= high
+
+~~ The sign of a number: -1, 0 or 1.
+pub fn sign(value: Num) -> Int {
+    if value > 0.0 { give 1 }
+    if value < 0.0 { give 0 - 1 }
+    give 0
+}
+
+~~ Move part of the way from one number to another.
+pub fn blend(from: Num, to: Num, amount: Num) -> Num => from + (to - from) * math.clamp(amount, 0.0, 1.0)
+
+~~ Round to a number of decimal places.
+pub fn round_to(value: Num, places: Int) -> Num {
+    let factor = math.pow(10.0, places.to_num())
+    give math.round(value * factor) / factor
+}
+
+~~ Repeat a piece of work and give back every result.
+pub fn times(count: Int, work: fn(Int) -> Any) -> [Any] {
+    var out: [Any] = []
+    var i = 0
+    while i < count {
+        out.push(work(i))
+        i = i + 1
+    }
+    give out
+}
+
+~~ The first value that is not nothing.
+pub fn first_set(values: [Any?]) -> Any? {
+    for v in values {
+        if v != nil { give v }
+    }
+    give nil
+}
+
+~~ Readable byte sizes, for logs and status lines.
+pub fn human_size(bytes: Int) -> Text {
+    if bytes < 1024 { give "{bytes} B" }
+    if bytes < 1048576 { give "{round_to(bytes.to_num() / 1024.0, 1)} KB" }
+    if bytes < 1073741824 { give "{round_to(bytes.to_num() / 1048576.0, 1)} MB" }
+    give "{round_to(bytes.to_num() / 1073741824.0, 2)} GB"
+}
+
+~~ A short readable duration.
+pub fn human_time(seconds: Num) -> Text {
+    if seconds < 0.001 { give "{round_to(seconds * 1000000.0, 0)} us" }
+    if seconds < 1.0 { give "{round_to(seconds * 1000.0, 1)} ms" }
+    if seconds < 60.0 { give "{round_to(seconds, 2)} s" }
+    give "{round_to(seconds / 60.0, 1)} min"
+}

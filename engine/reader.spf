@@ -1,0 +1,288 @@
+~~ =====================================================================
+~~  Sreon — reader
+~~
+~~  Two things from one page: Reader, which keeps the article and drops
+~~  everything around it, and Brief, which says what the article is
+~~  about. The window collects the page's paragraphs and headings and
+~~  hands them over; deciding which of them are the article, which
+~~  sentences carry the point, and what numbers matter is done here.
+~~ =====================================================================
+module reader
+
+use std.json
+use std.math
+use kit
+use icons
+use theme
+use state
+
+pub object Block {
+    kind: Text = "p"
+    text: Text = ""
+    src: Text = ""
+    links: Int = 0
+    parent: Int = -1
+    grand: Int = -1
+}
+
+pub object Article {
+    ok: Bool = false
+    url: Text = ""
+    title: Text = ""
+    site: Text = ""
+    byline: Text = ""
+    desc: Text = ""
+    image: Text = ""
+    blocks: [Block] = []
+    words: Int = 0
+}
+
+fn words_in(t: Text) -> Int {
+    var n = 0
+    var inside = false
+    for c in t.chars() {
+        if c == " " { inside = false }
+        else if not inside { inside = true; n = n + 1 }
+    }
+    give n
+}
+
+fn hint_score(label: Text) -> Int {
+    let l = label.lower()
+    var s = 0
+    for good in ["article", "content", "post", "entry", "story", "body", "text", "main", "prose", "markdown", "blog"] { if l.contains(good) { s = s + 25 } }
+    for bad in ["comment", "sidebar", "footer", "nav", "menu", "related", "share", "social", "promo", "advert", "sponsor", "widget", "newsletter", "cookie", "popup", "modal", "header", "banner", "breadcrumb", "tag", "meta", "author-bio", "recommend"] { if l.contains(bad) { s = s - 40 } }
+    give s
+}
+
+pub fn extract(raw: Text) -> Article {
+    let parsed = json.parse(raw)
+    if parsed == nil { give Article { } }
+    let m: Map<Text, Any> = parsed ?? [:]
+    var art = Article { ok: true }
+    art.url = kit.gt(m, "url")
+    art.title = kit.gt(m, "h1")
+    if art.title == "" { art.title = kit.gt(m, "title") }
+    art.site = kit.gt(m, "site")
+    if art.site == "" { art.site = kit.site_of(art.url) }
+    art.byline = kit.gt(m, "by")
+    art.desc = kit.gt(m, "desc")
+    art.image = kit.gt(m, "image")
+    let cont = kit.gl(m, "cont")
+    let items = kit.gl(m, "items")
+    var labels: [Text] = []
+    for c in cont {
+        let cm: Map<Text, Any> = c
+        labels.push(kit.gt(cm, "t") + " " + kit.gt(cm, "c"))
+    }
+    var scores: [Int] = []
+    for _ in cont { scores.push(0) }
+    var blocks: [Block] = []
+    for it in items {
+        let im: Map<Text, Any> = it
+        var b = Block { kind: kit.gt(im, "k"), text: kit.gt(im, "x"), src: kit.gt(im, "s"), links: kit.gi(im, "l", 0), parent: kit.gi(im, "c", -1), grand: kit.gi(im, "g", -1) }
+        blocks.push(b)
+        if b.kind == "p" or b.kind == "li" or b.kind == "blockquote" or b.kind == "pre" {
+            let len = b.text.len()
+            if len < 25 { skip }
+            var points = 1 + kit.idiv(len, 100) + commas(b.text)
+            if len > 0 and kit.idiv(b.links * 100, len) > 50 { points = 0 - 2 }
+            if b.parent >= 0 and b.parent < scores.len() { scores[b.parent] = scores[b.parent] + points }
+            if b.grand >= 0 and b.grand < scores.len() { scores[b.grand] = scores[b.grand] + kit.idiv(points, 2) }
+        }
+    }
+    var best = -1
+    var best_score = 0
+    var i = 0
+    while i < scores.len() {
+        let total = scores[i] + hint_score(labels[i])
+        if total > best_score { best_score = total; best = i }
+        i = i + 1
+    }
+    if best < 0 { give Article { } }
+    var wordcount = 0
+    for b in blocks {
+        let inside = b.parent == best or b.grand == best
+        let heading = b.kind == "h1" or b.kind == "h2" or b.kind == "h3" or b.kind == "h4"
+        var keep = false
+        if inside and (b.kind == "p" or b.kind == "blockquote" or b.kind == "pre" or b.kind == "li" or heading or b.kind == "img") { keep = true }
+        if b.kind == "p" and inside and b.text.len() < 25 and b.links > 0 { keep = false }
+        if b.kind == "li" and inside and kit.idiv(b.links * 100, b.text.len() + 1) > 60 { keep = false }
+        if heading and not inside and b.grand != best { keep = false }
+        if b.kind == "h1" and b.text == art.title { keep = false }
+        if keep {
+            art.blocks.push(b)
+            if b.kind != "img" { wordcount = wordcount + words_in(b.text) }
+        }
+    }
+    art.words = wordcount
+    if wordcount < 40 { art.ok = false }
+    give art
+}
+
+fn commas(t: Text) -> Int {
+    var n = 0
+    for c in t.chars() { if c == "," { n = n + 1 } }
+    give n
+}
+
+pub fn minutes(words: Int) -> Int {
+    let m = kit.idiv(words + 229, 230)
+    if m < 1 { give 1 }
+    give m
+}
+
+~~ ------------------------------------------------------------ the reader
+pub fn reader_html(a: state.App, art: Article) -> Text {
+    var b = "<div class=\"reader-bar\"><button class=\"btn small\" data-act=\"reader.size\" data-a=\"{{&quot;d&quot;:-1}}\">A−</button><button class=\"btn small\" data-act=\"reader.size\" data-a=\"{{&quot;d&quot;:1}}\">A+</button><button class=\"btn small\" data-act=\"reader.font\">Serif / Sans</button><button class=\"btn small\" data-act=\"go\" data-a=\"{{&quot;do&quot;:&quot;back&quot;}}\">Close reader</button></div>"
+    b = b + "<article class=\"reader-body\" id=\"rb\"><div class=\"small muted\">" + kit.esc(art.site) + kit.sel(art.byline != "", " · " + kit.esc(art.byline), "") + " · " + minutes(art.words).to_text() + " min read</div><h1>" + kit.esc(art.title) + "</h1>"
+    var in_list = false
+    for blk in art.blocks {
+        if blk.kind != "li" and in_list { b = b + "</ul>"; in_list = false }
+        if blk.kind == "p" { b = b + "<p>" + kit.esc(blk.text) + "</p>" }
+        else if blk.kind == "h1" or blk.kind == "h2" { b = b + "<h2>" + kit.esc(blk.text) + "</h2>" }
+        else if blk.kind == "h3" or blk.kind == "h4" { b = b + "<h3>" + kit.esc(blk.text) + "</h3>" }
+        else if blk.kind == "blockquote" { b = b + "<blockquote>" + kit.esc(blk.text) + "</blockquote>" }
+        else if blk.kind == "pre" { b = b + "<pre style=\"background:var(--surface);padding:1em;border-radius:12px;overflow:auto;font-size:.8em;font-family:var(--mono);white-space:pre-wrap\">" + kit.esc(blk.text) + "</pre>" }
+        else if blk.kind == "li" {
+            if not in_list { b = b + "<ul style=\"margin:0 0 1.15em 1.2em\">"; in_list = true }
+            b = b + "<li>" + kit.esc(blk.text) + "</li>"
+        }
+        else if blk.kind == "img" and blk.src.starts_with("http") { b = b + "<img src=\"" + kit.esc(blk.src) + "\" alt=\"" + kit.esc(blk.text) + "\">" }
+    }
+    if in_list { b = b + "</ul>" }
+    b = b + "<p class=\"small faint\"><a href=\"" + kit.esc(art.url) + "\">Open the original page</a></p></article>"
+    give theme.document(a.s, "reader", art.title, "", "", b, "")
+}
+
+~~ -------------------------------------------------------------- brief
+fn stop(w: Text) -> Bool {
+    for s in ["the", "and", "for", "that", "with", "this", "from", "have", "has", "had", "was", "were", "are", "but", "not", "you", "your", "they", "their", "them", "its", "his", "her", "she", "him", "will", "would", "could", "should", "can", "all", "any", "one", "out", "about", "more", "than", "when", "what", "which", "who", "how", "also", "been", "into", "over", "such", "only", "other", "some", "just", "like", "there", "these", "those", "then", "than", "very", "much", "most", "many", "said", "says", "may", "might", "our", "ours", "being", "because", "after", "before", "while", "where", "does", "did", "get", "got", "make", "made", "new", "now", "use", "used", "using", "even", "each", "per", "via", "too", "off", "own", "see", "way", "yet", "still", "back", "well", "first", "two", "three"] {
+        if w == s { give true }
+    }
+    give false
+}
+
+fn clean_word(w: Text) -> Text {
+    var out = ""
+    for c in w.lower().chars() {
+        if (c >= "a" and c <= "z") or (c >= "0" and c <= "9") or c == "'" or c >= "\u{80}" { out = out + c }
+    }
+    give out
+}
+
+pub fn sentences(text: Text) -> [Text] {
+    var out: [Text] = []
+    var cur = ""
+    let cs = text.chars()
+    var i = 0
+    while i < cs.len() {
+        let c = cs[i]
+        cur = cur + c
+        if (c == "." or c == "!" or c == "?") and (i + 1 >= cs.len() or cs[i + 1] == " ") {
+            ~~ not after a one-letter abbreviation or a number like 3.5
+            let t = cur.trim()
+            if t.len() > 2 and not (t.len() < 4 and c == ".") { out.push(t); cur = "" }
+        }
+        i = i + 1
+    }
+    if cur.trim().len() > 20 { out.push(cur.trim()) }
+    give out
+}
+
+object Scored {
+    at: Int = 0
+    score: Num = 0.0
+    text: Text = ""
+}
+
+fn is_fact(w: Text) -> Bool {
+    if w.len() == 0 { give false }
+    let c = w.slice(0, 1)
+    var digits = 0
+    for ch in w.chars() { if ch >= "0" and ch <= "9" { digits = digits + 1 } }
+    if digits == 0 { give false }
+    if c == "$" or c == "€" or c == "£" { give true }
+    if w.ends_with("%") { give true }
+    if digits >= 4 and (c >= "0" and c <= "9") and not w.contains("-") { give true }
+    if w.ends_with("bn") or w.ends_with("m") or w.ends_with("k") { give digits > 0 }
+    give false
+}
+
+pub fn brief(_a: state.App, art: Article) -> Text {
+    if not art.ok { give "<div class=\"empty\">" + icons.svg("spark") + "<p>This page does not look like an article, so there is nothing to brief. Try it on a news story, a post or a document.</p></div>" }
+    var text = ""
+    for b in art.blocks { if b.kind == "p" or b.kind == "li" or b.kind == "blockquote" { text = text + b.text + " " } }
+    ~~ how often does each word carry the subject
+    var freq: Map<Text, Int> = [:]
+    for raw in text.split(" ") {
+        let w = clean_word(raw)
+        if w.len() < 4 or stop(w) { skip }
+        freq.set(w, (freq.get(w) ?? 0) + 1)
+    }
+    var top_n = 0
+    for k in freq.keys() { let n = freq.get(k) ?? 0; if n > top_n { top_n = n } }
+    let sents = sentences(text)
+    var scored: [Scored] = []
+    var idx = 0
+    for s in sents {
+        let ws = s.split(" ")
+        if ws.len() < 7 or ws.len() > 55 { idx = idx + 1; skip }
+        var sum = 0.0
+        var counted = 0
+        for raw in ws {
+            let w = clean_word(raw)
+            if w.len() < 4 or stop(w) { skip }
+            sum = sum + to_num(freq.get(w) ?? 0) / to_num(top_n + 1)
+            counted = counted + 1
+        }
+        if counted == 0 { idx = idx + 1; skip }
+        var score = sum / math.sqrt(to_num(counted)) * 2.0
+        if idx < 3 { score = score * 1.35 }
+        if s.contains("\"") or s.contains("“") { score = score * 0.8 }
+        scored.push(Scored { at: idx, score: score, text: s })
+        idx = idx + 1
+    }
+    let ranked = scored.sort_by(fn(x, y) => x.score > y.score)
+    var chosen: [Scored] = []
+    var n = 0
+    let want = kit.sel_i(art.words > 1500, 6, kit.sel_i(art.words > 600, 5, 3))
+    while n < ranked.len() and n < want { chosen.push(ranked[n]); n = n + 1 }
+    let ordered = chosen.sort_by(fn(x, y) => x.at < y.at)
+
+    var h = "<div class=\"card\"><div class=\"tiny muted\">" + kit.esc(art.site) + kit.sel(art.byline != "", " · " + kit.esc(art.byline), "") + "</div><div style=\"font-weight:650;font-size:1.1rem;margin:.2rem 0 .5rem;line-height:1.3\">" + kit.esc(art.title) + "</div>"
+    h = h + "<div class=\"row wrap\"><span class=\"chip accent\">" + icons.svg("clock") + minutes(art.words).to_text() + " min read</span><span class=\"chip\">" + art.words.to_text() + " words</span><span class=\"chip\">" + sents.len().to_text() + " sentences</span></div></div>"
+    h = h + "<div class=\"lines\"><div class=\"tiny faint\" style=\"margin:.2rem 0 .5rem\">THE POINT</div>"
+    for s in ordered { h = h + "<div class=\"sent\">" + kit.esc(s.text) + "</div>" }
+    h = h + "</div>"
+    ~~ topics
+    var words: [Scored] = []
+    for k in freq.keys() { let c = freq.get(k) ?? 0; if c >= 3 { words.push(Scored { score: to_num(c), text: k }) } }
+    let tops = words.sort_by(fn(x, y) => x.score > y.score)
+    if tops.len() > 0 {
+        h = h + "<div class=\"tiny faint\" style=\"margin:.8rem 0 .4rem\">TOPICS</div><div class=\"row wrap\">"
+        var t = 0
+        while t < tops.len() and t < 9 { h = h + "<span class=\"chip\">" + kit.esc(tops[t].text) + "</span>"; t = t + 1 }
+        h = h + "</div>"
+    }
+    ~~ numbers worth knowing
+    var facts: [Text] = []
+    for s in sents {
+        var found = false
+        for raw in s.split(" ") { if is_fact(raw) and not found { found = true } }
+        if found and facts.len() < 4 and s.len() < 220 { facts.push(s) }
+    }
+    if facts.len() > 0 {
+        h = h + "<div class=\"tiny faint\" style=\"margin:.8rem 0 .4rem\">NUMBERS AND DATES</div>"
+        for f in facts { h = h + "<div class=\"sent\" style=\"border-color:var(--accent2)\">" + kit.esc(f) + "</div>" }
+    }
+    h = h + "<div class=\"row\" style=\"margin-top:.8rem\"><button class=\"btn small\"" + " data-act=\"brief.copy\">" + icons.svg("copy") + "Copy brief</button><button class=\"btn small\" data-act=\"cmd\" data-a=\"{{&quot;id&quot;:&quot;reader&quot;}}\">" + icons.svg("reader") + "Reader</button></div>"
+    h = h + "<div class=\"tiny faint\" style=\"margin-top:.6rem\">Chosen by word frequency and position, by the SPRFST engine on this Mac. Nothing was sent anywhere.</div>"
+    give h
+}
+
+pub fn brief_plain(art: Article) -> Text {
+    var text = art.title + "\n\n"
+    for b in art.blocks { if b.kind == "p" { text = text + b.text + "\n" } }
+    give text
+}

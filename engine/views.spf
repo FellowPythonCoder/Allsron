@@ -1,0 +1,275 @@
+~~ =====================================================================
+~~  Sreon — views
+~~
+~~  The parts of the window that are drawn by the engine: the sidebar,
+~~  the toolbar, the right panel and the command bar. Each one is a
+~~  function from the browser's state to a piece of HTML.
+~~ =====================================================================
+module views
+
+use std.json
+use std.time
+use kit
+use icons
+use settings
+use state
+use theme
+use omnibox
+use shield
+
+pub fn ic(name: Text) -> Text => icons.svg(name)
+
+~~ data-act="name" data-a='{...}'
+pub fn act(name: Text, args: Map<Text, Any>) -> Text {
+    if args.len() == 0 { give " data-act=\"" + name + "\"" }
+    give " data-act=\"" + name + "\" data-a=\"" + kit.jattr(args) + "\""
+}
+
+pub fn act_id(name: Text, id: Int) -> Text => act(name, ["id": id])
+
+~~ A site's little square: a drawn glyph for the kind of site, or the Sreon mark.
+pub fn fav(url: Text, big: Bool) -> Text {
+    let cls = if big { "fav lg" } else { "fav" }
+    if url.starts_with("sreon://") {
+        give "<span class=\"" + cls + "\" style=\"background:none\">" + icons.mark(kit.sel_i(big, 30, 20)) + "</span>"
+    }
+    let host = kit.site_of(url)
+    if host == "" { give "<span class=\"" + cls + "\">" + ic("globe") + "</span>" }
+    give "<span class=\"" + cls + "\">" + ic(icons.site_glyph(host)) + "</span>"
+}
+
+pub fn switch_html(name: Text, key: Text, yes: Bool) -> Text {
+    give "<label class=\"switch\"><input type=\"checkbox\" data-change=\"" + name + "\" data-a=\"" + kit.jattr(["key": key]) + "\"" + kit.sel(yes, " checked", "") + "><i></i></label>"
+}
+
+~~ ------------------------------------------------------------ sidebar
+fn tab_row(a: state.App, t: state.Tab) -> Text {
+    var cls = "tab"
+    if t.id == a.active { cls = cls + " on" }
+    if t.sleeping { cls = cls + " sleep" }
+    var icon = fav(t.url, false)
+    if t.loading { icon = "<span class=\"spin\"></span>" }
+    let title = state.brand_title(t.title, t.url)
+    give "<div class=\"" + cls + "\"" + act_id("tab.select", t.id) + " data-ctx=\"tab\" data-a=\"" + kit.jattr(["id": t.id]) + "\">" + icon +
+          "<span class=\"ttl\">" + kit.esc(title) + "</span><button class=\"x\"" + act_id("tab.close", t.id) + " title=\"Close\">" + ic("close") + "</button></div>"
+}
+
+pub fn sidebar(a: state.App) -> Text {
+    let mode = settings.str(a.s, "side_mode")
+    var cls = "sb"
+    if mode == "compact" { cls = cls + " compact" }
+    if settings.str(a.s, "side") == "right" { cls = cls + " right" }
+    if not settings.flag(a.s, "tab_close_hover") { cls = cls + " nohover" }
+    var h = "<div class=\"" + cls + "\">"
+    h = h + "<div class=\"sb-top\"><div class=\"brand\">" + icons.mark(22) + "<span>Sreon</span></div><span class=\"grow\"></span>"
+    h = h + "<button class=\"ib\"" + act("host.sidebar", [:]) + " title=\"Hide sidebar\">" + ic("sidebar") + "</button></div>"
+    if settings.flag(a.s, "workspaces") and a.workspaces.len() > 1 {
+        h = h + "<div class=\"ws\">"
+        for w in a.workspaces {
+            h = h + "<button" + kit.sel(w == a.ws, " class=\"on\"", "") + act("ws.select", ["name": w]) + " data-ctx=\"ws\" data-a=\"" + kit.jattr(["name": w]) + "\">" + kit.esc(w) + "</button>"
+        }
+        h = h + "<button" + act("ws.add", [:]) + " title=\"New workspace\">+</button></div>"
+    }
+    h = h + "<button class=\"find-tabs\"" + act("palette.open", ["mode": "all"]) + ">" + ic("search") + "<span>Search or enter address</span><kbd>" + omnibox.pretty_key(to_text(a.keys.get("palette") ?? "")) + "</kbd></button>"
+    let mine = state.ws_tabs(a)
+    var pins = ""
+    var rest = ""
+    for t in mine {
+        if t.pinned {
+            var c = "pin"
+            if t.id == a.active { c = c + " on" }
+            if t.sleeping { c = c + " sleep" }
+            pins = pins + "<div class=\"" + c + "\"" + act_id("tab.select", t.id) + " data-ctx=\"tab\" data-a=\"" + kit.jattr(["id": t.id]) + "\" title=\"" + kit.esc(t.title) + "\">" + fav(t.url, true) + "</div>"
+        } else {
+            rest = rest + tab_row(a, t)
+        }
+    }
+    if pins != "" { h = h + "<div class=\"pins\">" + pins + "</div>" }
+    h = h + "<div class=\"tabs\">" + rest
+    h = h + "<button class=\"newtab-btn\"" + act("tab.new", [:]) + ">" + ic("plus") + "<span>New tab</span></button></div>"
+    h = h + "<div class=\"sb-foot\">"
+    for e in [["bookmark", "Bookmarks", "sreon://bookmarks"], ["history", "History", "sreon://history"], ["download", "Downloads", "sreon://downloads"],
+              ["code", "Studio", "sreon://studio"], ["board", "Whiteboard", "sreon://studio?tab=board"], ["gear", "Settings", "sreon://settings"]] {
+        h = h + "<button class=\"ib\"" + act("open", ["url": e[2], "where": "tab"]) + " title=\"" + e[1] + "\">" + ic(e[0]) + "</button>"
+    }
+    h = h + "</div></div>"
+    give h
+}
+
+~~ ------------------------------------------------------------ toolbar
+pub fn toolbar(a: state.App, left_pad: Bool) -> Text {
+    let t = state.current(a)
+    var h = "<div class=\"tb" + kit.sel(left_pad, " pad-left", "") + "\">"
+    if settings.str(a.s, "side_mode") == "hidden" {
+        h = h + "<button class=\"ib\"" + act("host.sidebar", [:]) + " title=\"Show sidebar\">" + ic("sidebar") + "</button>"
+    }
+    h = h + "<button class=\"ib" + kit.sel(t.back, "", " off") + "\"" + act("go", ["do": "back"]) + " title=\"Back\">" + ic("back") + "</button>"
+    h = h + "<button class=\"ib" + kit.sel(t.forward, "", " off") + "\"" + act("go", ["do": "forward"]) + " title=\"Forward\">" + ic("forward") + "</button>"
+    if t.loading {
+        h = h + "<button class=\"ib\"" + act("go", ["do": "stop"]) + " title=\"Stop\">" + ic("stop") + "</button>"
+    } else {
+        h = h + "<button class=\"ib\"" + act("go", ["do": "reload"]) + " title=\"Reload\">" + ic("reload") + "</button>"
+    }
+    ~~ the address pill
+    let url = t.url
+    var inner = ""
+    if url == "" or url.starts_with("sreon://newtab") {
+        inner = "<span class=\"muted\">Search or enter address</span>"
+    } else if url.starts_with("sreon://") {
+        inner = "<span class=\"lock\">" + ic("spark") + "</span><span class=\"host\">Sreon</span><span class=\"rest\">" + kit.esc(url.slice(8, url.len())) + "</span>"
+    } else {
+        let host = kit.host_of(url)
+        let lock = if t.secure { "<span class=\"lock\">" + ic("lock") + "</span>" } else { "<span class=\"lock bad\">" + ic("unlock") + "</span>" }
+        var rest = ""
+        if settings.flag(a.s, "toolbar_labels") {
+            let after = url.slice(url.index_of(host) + host.len(), url.len())
+            rest = "<span class=\"rest trunc\">" + kit.esc(kit.truncate(after, 70)) + "</span>"
+        }
+        inner = lock + "<span class=\"host trunc\">" + kit.esc(kit.site_of(url)) + "</span>" + rest
+    }
+    h = h + "<button class=\"urlpill" + kit.sel(t.loading, " loading", "") + "\"" + act("palette.open", ["mode": "all", "fill": true]) + ">" + inner + "</button>"
+    let off = shield.per_site_off(a.s, kit.host_of(url))
+    h = h + "<button class=\"ib shield-btn" + kit.sel(off, " off", " on") + "\"" + act("panel.show", ["tab": "shield"]) + " title=\"Shield\">" + ic(kit.sel(off, "shield-off", "shield")) + "</button>"
+    h = h + "<button class=\"ib\"" + act("cmd", ["id": "reader"]) + " title=\"Reader\">" + ic("reader") + "</button>"
+    let starred = state.is_bookmarked(a, url)
+    h = h + "<button class=\"ib" + kit.sel(starred, " on", "") + "\"" + act("cmd", ["id": "bookmark"]) + " title=\"Bookmark\">" + ic("star") + "</button>"
+    h = h + "<button class=\"ib" + kit.sel(a.panel_open, " on", "") + "\"" + act("cmd", ["id": "toggle_panel"]) + " title=\"Panel\">" + ic("panel") + "</button>"
+    h = h + "</div>"
+    give h
+}
+
+~~ -------------------------------------------------------------- panel
+fn pn_tab(a: state.App, id: Text, label: Text, icon: Text) -> Text {
+    give "<button" + kit.sel(a.panel_tab == id, " class=\"on\"", "") + act("panel.tab", ["tab": id]) + ">" + ic(icon) + "<span>" + label + "</span></button>"
+}
+
+fn kv(k: Text, v: Text) -> Text => "<div class=\"kv\"><span class=\"muted\">" + k + "</span><span>" + v + "</span></div>"
+
+pub fn panel_shield(a: state.App) -> Text {
+    let t = state.current(a)
+    let host = kit.site_of(t.url)
+    let off = shield.per_site_off(a.s, kit.host_of(t.url))
+    let active = settings.flag(a.s, "shield")
+    var h = "<div class=\"hero-shield\">"
+    h = h + "<svg class=\"shield\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"url(#g)\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><defs><linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"" + settings.str(a.s, "accent") + "\"/><stop offset=\"1\" stop-color=\"" + settings.str(a.s, "accent2") + "\"/></linearGradient></defs><path d=\"M12 3l7 3v5c0 5-3 8.500-7 10-4-1.500-7-5-7-10V6z\"/>" + kit.sel(off, "", "<path d=\"M9 12l2 2 4-4\"/>") + "</svg>"
+    if not active { h = h + "<div class=\"big\">Shield is off</div><div class=\"muted\">Turned off everywhere in Settings.</div>" } else if off { h = h + "<div class=\"big\">Off here</div><div class=\"muted\">" + kit.esc(kit.sel(host == "", "This page", host)) + " is on your allow list.</div>" } else { h = h + "<div class=\"big\">Protected</div><div class=\"muted\">Blocking happens before pages load.</div>" }
+    h = h + "</div>"
+    if host != "" and not t.url.starts_with("sreon://") and active {
+        h = h + "<button class=\"btn\"" + act("shield.site", [:]) + ">" + kit.sel(off, "Turn Shield on for ", "Turn Shield off for ") + kit.esc(host) + "</button>"
+    }
+    h = h + "<div class=\"card\"><div class=\"kv\"><b>Strength</b><span class=\"seg\">"
+    for lv in ["standard", "strict", "maximum"] {
+        h = h + "<button" + kit.sel(settings.str(a.s, "level") == lv, " class=\"on\"", "") + act("set", ["key": "level", "value": lv]) + ">" + kit.sel(lv == "maximum", "Max", lv) + "</button>"
+    }
+    h = h + "</span></div>"
+    for r in [["ads", "Advertising"], ["trackers", "Trackers"], ["social", "Social widgets"], ["cookies", "Cookie banners"], ["annoy", "Annoyances"], ["video_ads", "Video ads"], ["popups", "Pop-ups"], ["https", "Always HTTPS"], ["strip", "Clean links"]] {
+        h = h + "<div class=\"kv\"><span>" + r[1] + "</span>" + switch_html("set", r[0], settings.flag(a.s, r[0])) + "</div>"
+    }
+    h = h + "</div>"
+    h = h + "<div class=\"stat\"><div class=\"card\"><div class=\"n\">" + a.cleaned.to_text() + "</div><div class=\"tiny muted\">links cleaned</div></div>"
+    h = h + "<div class=\"card\"><div class=\"n\">" + a.upgrades.to_text() + "</div><div class=\"tiny muted\">upgraded to HTTPS</div></div>"
+    h = h + "<div class=\"card\"><div class=\"n\">" + a.popups.to_text() + "</div><div class=\"tiny muted\">pop-ups stopped</div></div>"
+    h = h + "<div class=\"card\"><div class=\"n\">" + a.sleeps.to_text() + "</div><div class=\"tiny muted\">tabs put to sleep</div></div></div>"
+    h = h + "<div class=\"tiny faint center\">" + shield.summary(a.book) + " are active. Blocked requests are stopped inside the web engine, so no count can be taken of what never happened.</div>"
+    h = h + "<button class=\"btn ghost small\"" + act("open", ["url": "sreon://shield", "where": "tab"]) + ">Open the Shield report</button>"
+    give h
+}
+
+pub fn panel_notes(a: state.App) -> Text {
+    let t = state.current(a)
+    let host = kit.site_of(t.url)
+    var key = host
+    if host == "" or t.url.starts_with("sreon://") { key = "_global" }
+    let have = kit.gt(a.notes, key)
+    var h = "<div class=\"row\"><b class=\"grow\">" + kit.sel(key == "_global", "Scratchpad", "Notes for " + kit.esc(host)) + "</b>"
+    h = h + "<button class=\"btn small\"" + act("notes.scope", ["key": kit.sel(key == "_global", host, "_global")]) + ">" + kit.sel(key == "_global", "This site", "Scratchpad") + "</button></div>"
+    h = h + "<textarea style=\"min-height:300px;font-family:var(--font)\" placeholder=\"Anything you want to remember about this site. Saved on this Mac as you type.\" data-input=\"notes.save\" data-wait=\"350\" data-a=\"" + kit.jattr(["key": key]) + "\">" + kit.esc(have) + "</textarea>"
+    var all = ""
+    for k in a.notes.keys() {
+        if kit.gt(a.notes, k).trim() != "" and k != key {
+            all = all + "<div class=\"list-item\"" + act("notes.scope", ["key": k]) + "><div class=\"grow\"><div class=\"t\">" + kit.sel(k == "_global", "Scratchpad", kit.esc(k)) + "</div><div class=\"s trunc\">" + kit.esc(kit.truncate(kit.gt(a.notes, k).replace("\n", " "), 70)) + "</div></div></div>"
+        }
+    }
+    if all != "" { h = h + "<div class=\"tiny faint\" style=\"margin-top:6px\">Other notes</div><div class=\"card\" style=\"padding:0\">" + all + "</div>" }
+    give h
+}
+
+pub fn panel_focus(a: state.App) -> Text {
+    var h = ""
+    let now = kit.now_ms()
+    if a.timer_end > now {
+        h = h + "<div class=\"card center\"><div class=\"tiny muted\">" + kit.sel(a.timer_kind == "break", "Break", "Focus") + "</div><div class=\"timer\" data-until=\"" + a.timer_end.to_text() + "\">--:--</div>"
+        h = h + "<button class=\"btn\"" + act("cmd", ["id": "timer_stop"]) + ">Stop</button></div>"
+    } else {
+        h = h + "<div class=\"card center\"><div class=\"timer\">25:00</div><div class=\"row\" style=\"justify-content:center\">"
+        h = h + "<button class=\"btn primary\"" + act("cmd", ["id": "timer_25"]) + ">Focus 25</button><button class=\"btn\"" + act("cmd", ["id": "timer_5"]) + ">Break 5</button></div></div>"
+    }
+    h = h + "<div class=\"card\"><div class=\"row\"><div class=\"grow\"><b>Focus mode</b><div class=\"small muted\">Hides distractions on sites you list, and keeps the sidebar quiet.</div></div>" + switch_html("focus.toggle", "focus", a.focus_on) + "</div></div>"
+    h = h + "<div class=\"tiny faint\">Sites to block while focusing, one per line</div>"
+    h = h + "<textarea data-input=\"focus.sites\" data-wait=\"400\" placeholder=\"reddit.com&#10;x.com&#10;youtube.com\">" + kit.esc(settings.str(a.s, "focus_sites")) + "</textarea>"
+    give h
+}
+
+pub fn panel_tools(_a: state.App) -> Text {
+    var h = "<input type=\"text\" id=\"qt\" placeholder=\"Type a sum, a conversion, a colour…\" data-input=\"tools.q\" data-wait=\"60\">"
+    h = h + "<div data-region=\"toolans\"></div><div class=\"sep\"></div><div class=\"grid3\" style=\"grid-template-columns:1fr 1fr\">"
+    for e in [["calc", "Calculator", "calc"], ["palette", "Colours", "color"], ["json", "JSON", "json"], ["hash", "Hashes", "hash"], ["key", "Password", "password"], ["type", "Text", "text"],
+              ["board", "Whiteboard", "board"], ["code", "Studio", "code"]] {
+        h = h + "<button class=\"btn\"" + act("open", ["url": "sreon://studio?tab=tools&tool=" + e[2], "where": "tab"]) + ">" + ic(e[0]) + e[1] + "</button>"
+    }
+    h = h + "</div>"
+    give h
+}
+
+pub fn panel_body(a: state.App) -> Text {
+    if a.panel_tab == "brief" {
+        if a.brief_html == "" { give "<div class=\"empty\">" + ic("spark") + "<p>Brief reads the page you are on and gives you the point of it, a reading time and the numbers and dates it mentions.</p><br><button class=\"btn primary\"" + act("brief.run", [:]) + ">Brief this page</button></div>" }
+        give a.brief_html
+    }
+    if a.panel_tab == "notes" { give panel_notes(a) }
+    if a.panel_tab == "focus" { give panel_focus(a) }
+    if a.panel_tab == "tools" { give panel_tools(a) }
+    give panel_shield(a)
+}
+
+pub fn panel(a: state.App) -> Text {
+    var h = "<div class=\"pn\"><div class=\"pn-tabs\">" + pn_tab(a, "shield", "Shield", "shield") + pn_tab(a, "brief", "Brief", "spark") + pn_tab(a, "notes", "Notes", "note") + pn_tab(a, "tools", "Tools", "tools") + pn_tab(a, "focus", "Focus", "focus") + "</div>"
+    h = h + "<div class=\"pn-body\" data-region=\"pnbody\">" + panel_body(a) + "</div>"
+    h = h + "<div class=\"powered\" style=\"padding-top:0;justify-content:center\">" + icons.spf_mark(14) + "Powered by SPRFST Language</div></div>"
+    give h
+}
+
+~~ ------------------------------------------------------------- palette
+pub fn palette_items(a: state.App) -> Text {
+    if a.pal_items.len() == 0 {
+        give "<div class=\"empty\">Nothing found. Press Enter to search.</div>"
+    }
+    var h = ""
+    var last = ""
+    var i = 0
+    for it in a.pal_items {
+        var sec = ""
+        if it.kind == "answer" { sec = "Answer" }
+        else if it.kind == "url" or it.kind == "search" or it.kind == "keyword" { sec = "Go" }
+        else if it.kind == "tab" { sec = "Open tabs" }
+        else if it.kind == "bookmark" { sec = "Bookmarks" }
+        else if it.kind == "history" { sec = "History" }
+        else if it.kind == "command" { sec = "Commands" }
+        if sec != last and sec != "Answer" { h = h + "<div class=\"pal-sec\">" + sec + "</div>"; last = sec }
+        var cls = "res"
+        if i == a.pal_sel { cls = cls + " sel" }
+        if it.kind == "answer" { cls = cls + " answer" }
+        var ico = ic(kit.sel(it.icon == "", "globe", it.icon))
+        if it.hue >= 0 { ico = ic(icons.site_glyph(it.sub)) }
+        h = h + "<div class=\"" + cls + "\" id=\"r" + i.to_text() + "\"" + act("palette.pick", ["i": i]) + "><span class=\"ico\"" + "" + ">" + ico + "</span><div class=\"grow\"><div class=\"t trunc\">" + kit.esc(it.title) + "</div>" + kit.sel(it.sub != "", "<div class=\"s trunc\">" + kit.esc(it.sub) + "</div>", "") + "</div>" + kit.sel(it.hint != "", "<span class=\"k\">" + kit.esc(it.hint) + "</span>", "") + "</div>"
+        i = i + 1
+    }
+    give h
+}
+
+pub fn palette(a: state.App, initial: Text) -> Text {
+    var h = "<div class=\"pal\"><div class=\"pal-in\">" + ic("search") + "<input type=\"text\" id=\"pi\" autofocus autocomplete=\"off\" autocorrect=\"off\" spellcheck=\"false\" placeholder=\"Search, enter an address, or type &gt; for commands\" value=\"" + kit.esc(initial) + "\" data-input=\"palette.q\" data-keys=\"palette.key\"></div>"
+    h = h + "<div class=\"pal-list\" data-region=\"list\">" + palette_items(a) + "</div>"
+    h = h + "<div class=\"pal-foot\"><span><kbd>↑↓</kbd> choose</span><span><kbd>↩</kbd> open</span><span><kbd>⌘↩</kbd> new tab</span><span><kbd>esc</kbd> close</span><span class=\"grow\"></span><span>&gt; commands · @ tabs · # bookmarks</span></div></div>"
+    give h
+}

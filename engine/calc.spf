@@ -1,0 +1,351 @@
+~~ =====================================================================
+~~  Sreon — calc
+~~
+~~  A calculator and unit converter that lives in the address bar.
+~~  Type 12*(3+4), 15% of 80, 5 km in miles, 72 f to c, sqrt(2)...
+~~  and the answer appears before you press anything.
+~~ =====================================================================
+module calc
+
+use std.math
+use kit
+
+pub object Answer {
+    ok: Bool = false
+    text: Text = ""
+    note: Text = ""
+    value: Num = 0.0
+}
+
+~~ ------------------------------------------------------------- tokens
+object Tok {
+    kind: Text = ""      ~~ num, id, op, end
+    text: Text = ""
+    value: Num = 0.0
+}
+
+fn is_digit(c: Text) -> Bool => c >= "0" and c <= "9"
+fn is_alpha(c: Text) -> Bool => (c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or c == "_"
+
+fn tokenize(src: Text) -> [Tok] {
+    var out: [Tok] = []
+    let cs = src.chars()
+    var i = 0
+    while i < cs.len() {
+        let c = cs[i]
+        if c == " " { i = i + 1; skip }
+        if is_digit(c) or (c == "." and i + 1 < cs.len() and is_digit(cs[i + 1])) {
+            var j = i
+            var s = ""
+            var dots = 0
+            while j < cs.len() and (is_digit(cs[j]) or cs[j] == "." or cs[j] == "_" or (cs[j] == "," and j + 1 < cs.len() and is_digit(cs[j + 1]) and j > i)) {
+                if cs[j] == "." { dots = dots + 1 }
+                if cs[j] != "_" and cs[j] != "," { s = s + cs[j] }
+                j = j + 1
+            }
+            ~~ scientific notation: 1e6, 2.5e-3
+            if j < cs.len() and (cs[j] == "e" or cs[j] == "E") and j + 1 < cs.len() {
+                var k = j + 1
+                var e = "e"
+                if cs[k] == "-" or cs[k] == "+" { e = e + cs[k]; k = k + 1 }
+                if k < cs.len() and is_digit(cs[k]) {
+                    while k < cs.len() and is_digit(cs[k]) { e = e + cs[k]; k = k + 1 }
+                    s = s + e
+                    j = k
+                }
+            }
+            out.push(Tok { kind: "num", text: s, value: s.to_num() ?? 0.0 })
+            i = j
+            skip
+        }
+        if is_alpha(c) {
+            var j = i
+            var s = ""
+            while j < cs.len() and (is_alpha(cs[j]) or is_digit(cs[j])) { s = s + cs[j]; j = j + 1 }
+            out.push(Tok { kind: "id", text: s.lower() })
+            i = j
+            skip
+        }
+        if c == "*" and i + 1 < cs.len() and cs[i + 1] == "*" {
+            out.push(Tok { kind: "op", text: "^" })
+            i = i + 2
+            skip
+        }
+        if c == "×" or c == "·" { out.push(Tok { kind: "op", text: "*" }); i = i + 1; skip }
+        out.push(Tok { kind: "op", text: c })
+        i = i + 1
+    }
+    out.push(Tok { kind: "end" })
+    give out
+}
+
+~~ ------------------------------------------------------------- parser
+object Parser {
+    toks: [Tok] = []
+    at: Int = 0
+    bad: Bool = false
+    why: Text = ""
+}
+
+fn peek(p: Parser) -> Tok => p.toks[p.at]
+
+fn fail_at(p: Parser, why: Text) {
+    p.bad = true
+    if p.why == "" { p.why = why }
+}
+
+fn take(p: Parser) -> Tok {
+    let t = p.toks[p.at]
+    if t.kind != "end" { p.at = p.at + 1 }
+    give t
+}
+
+fn is_op(p: Parser, s: Text) -> Bool {
+    let t = peek(p)
+    give t.kind == "op" and t.text == s
+}
+
+fn expr(p: Parser) -> Num {
+    var v = term(p)
+    while not p.bad {
+        if is_op(p, "+") {
+            take(p)
+            let r = term(p)
+            ~~ 200 + 10%  means 200 plus a tenth of it
+            if p.at > 0 and p.toks[p.at - 1].kind == "op" and p.toks[p.at - 1].text == "%" {
+                v = v + v * r
+            } else {
+                v = v + r
+            }
+        } else if is_op(p, "-") {
+            take(p)
+            let r = term(p)
+            if p.at > 0 and p.toks[p.at - 1].kind == "op" and p.toks[p.at - 1].text == "%" {
+                v = v - v * r
+            } else {
+                v = v - r
+            }
+        } else { break }
+    }
+    give v
+}
+
+fn term(p: Parser) -> Num {
+    var v = power(p)
+    while not p.bad {
+        if is_op(p, "*") { take(p); v = v * power(p) }
+        else if is_op(p, "/") or is_op(p, "÷") {
+            take(p)
+            let d = power(p)
+            if d == 0.0 { fail_at(p, "cannot divide by zero"); give 0.0 }
+            v = v / d
+        }
+        else if is_op(p, "%") {
+            ~~ modulo when followed by a number, percent otherwise
+            let nxt = p.toks[p.at + 1]
+            if nxt.kind == "num" or (nxt.kind == "op" and nxt.text == "(") {
+                take(p)
+                let d = power(p)
+                if d == 0.0 { fail_at(p, "cannot divide by zero"); give 0.0 }
+                v = v - d * to_num(math.floor(v / d))
+            } else {
+                take(p)
+                v = v / 100.0
+            }
+        }
+        else if (peek(p).kind == "num") or (peek(p).kind == "op" and peek(p).text == "(") or (peek(p).kind == "id" and known(peek(p).text)) {
+            ~~ implicit multiplication: 2pi, 3(4+5)
+            v = v * power(p)
+        }
+        else { break }
+    }
+    give v
+}
+
+fn known(name: Text) -> Bool {
+    for n in ["pi", "e", "tau", "phi", "sqrt", "sin", "cos", "tan", "asin", "acos", "atan", "ln", "log", "log2", "log10",
+              "abs", "floor", "ceil", "round", "min", "max", "exp", "cbrt", "fact", "deg", "rad"] {
+        if n == name { give true }
+    }
+    give false
+}
+
+fn power(p: Parser) -> Num {
+    let base = unary(p)
+    if is_op(p, "^") {
+        take(p)
+        let e = power(p)
+        give math.pow(base, e)
+    }
+    give base
+}
+
+fn unary(p: Parser) -> Num {
+    if is_op(p, "-") { take(p); give 0.0 - unary(p) }
+    if is_op(p, "+") { take(p); give unary(p) }
+    give atom(p)
+}
+
+fn args(p: Parser) -> [Num] {
+    var out: [Num] = []
+    if is_op(p, ")") { give out }
+    out.push(expr(p))
+    while is_op(p, ",") or is_op(p, ";") {
+        take(p)
+        out.push(expr(p))
+    }
+    give out
+}
+
+fn factorial(n: Num) -> Num {
+    if n < 0.0 or n > 170.0 { give 0.0 }
+    var r = 1.0
+    var i = 2
+    while to_num(i) <= n { r = r * to_num(i); i = i + 1 }
+    give r
+}
+
+fn atom(p: Parser) -> Num {
+    let t = take(p)
+    if t.kind == "num" {
+        var v = t.value
+        if is_op(p, "!") { take(p); v = factorial(v) }
+        give v
+    }
+    if t.kind == "op" and t.text == "(" {
+        let v = expr(p)
+        if is_op(p, ")") { take(p) } else { fail_at(p, "a bracket is not closed") }
+        if is_op(p, "!") { take(p); give factorial(v) }
+        give v
+    }
+    if t.kind == "id" {
+        let name = t.text
+        if name == "pi" { give math.pi() }
+        if name == "tau" { give math.pi() * 2.0 }
+        if name == "e" { give math.exp(1.0) }
+        if name == "phi" { give (1.0 + math.sqrt(5.0)) / 2.0 }
+        var a: [Num] = []
+        if is_op(p, "(") {
+            take(p)
+            a = args(p)
+            if is_op(p, ")") { take(p) } else { fail_at(p, "a bracket is not closed") }
+        } else {
+            a = [unary(p)]
+        }
+        if a.len() == 0 { fail_at(p, name + " needs a number"); give 0.0 }
+        let x = a[0]
+        if name == "sqrt" {
+            if x < 0.0 { fail_at(p, "no real square root"); give 0.0 }
+            give math.sqrt(x)
+        }
+        if name == "cbrt" { give if x < 0.0 { 0.0 - math.pow(0.0 - x, 1.0 / 3.0) } else { math.pow(x, 1.0 / 3.0) } }
+        if name == "sin" { give math.sin(x) }
+        if name == "cos" { give math.cos(x) }
+        if name == "tan" { give math.tan(x) }
+        if name == "asin" { give math.atan2(x, math.sqrt(math.max(0.0, 1.0 - x * x))) }
+        if name == "acos" { give math.atan2(math.sqrt(math.max(0.0, 1.0 - x * x)), x) }
+        if name == "atan" { give math.atan2(x, 1.0) }
+        if name == "exp" { give math.exp(x) }
+        if name == "ln" {
+            if x <= 0.0 { fail_at(p, "ln needs a positive number"); give 0.0 }
+            give math.log(x)
+        }
+        if name == "log" or name == "log10" {
+            if x <= 0.0 { fail_at(p, "log needs a positive number"); give 0.0 }
+            if a.len() > 1 { give math.log(a[1]) / math.log(x) }
+            give math.log10(x)
+        }
+        if name == "log2" {
+            if x <= 0.0 { fail_at(p, "log needs a positive number"); give 0.0 }
+            give math.log2(x)
+        }
+        if name == "abs" { give math.abs(x) }
+        if name == "floor" { give to_num(math.floor(x)) }
+        if name == "ceil" { give to_num(math.ceil(x)) }
+        if name == "round" {
+            if a.len() > 1 {
+                var f = 1.0
+                var i = 0
+                while i < to_int(a[1]) { f = f * 10.0; i = i + 1 }
+                give to_num(math.round(x * f)) / f
+            }
+            give to_num(math.round(x))
+        }
+        if name == "fact" { give factorial(x) }
+        if name == "deg" { give x * 180.0 / math.pi() }
+        if name == "rad" { give x * math.pi() / 180.0 }
+        if name == "min" { var m = x; for v in a { if v < m { m = v } } give m }
+        if name == "max" { var m = x; for v in a { if v > m { m = v } } give m }
+        fail_at(p, "I do not know " + name)
+        give 0.0
+    }
+    fail_at(p, "something is missing")
+    give 0.0
+}
+
+~~ Show a number the way a person would write it.
+pub fn show(v: Num) -> Text {
+    if v != v { give "not a number" }
+    if math.abs(v) >= 1.0e15 or (math.abs(v) < 1.0e-6 and v != 0.0) {
+        give v.to_text()
+    }
+    let neg = v < 0.0
+    var a = math.abs(v)
+    let whole = to_int(a)
+    var frac = a - to_num(whole)
+    var f = ""
+    var whole_up = false
+    var i = 0
+    while i < 8 and frac > 1.0e-10 {
+        frac = frac * 10.0
+        let d = to_int(frac)
+        f = f + d.to_text()
+        frac = frac - to_num(d)
+        i = i + 1
+    }
+    ~~ round off a long tail of 9s or 0s from binary arithmetic
+    if f.len() >= 7 {
+        var carry = f.slice(0, 6)
+        let last = f.slice(6, 7)
+        if last >= "5" {
+            let n = (carry.to_int() ?? 0) + 1
+            carry = n.to_text().pad_left(6, "0")
+            if carry.len() > 6 { carry = carry.slice(1, 7); whole_up = true }
+        }
+        f = carry
+    }
+    while f.ends_with("0") { f = f.slice(0, f.len() - 1) }
+    var w = (if whole_up { whole + 1 } else { whole }).to_text()
+    var grouped = ""
+    var n = 0
+    var cs = w.chars().reverse()
+    for c in cs {
+        if n > 0 and n % 3 == 0 { grouped = "," + grouped }
+        grouped = c + grouped
+        n = n + 1
+    }
+    var out = grouped
+    if f != "" { out = out + "." + f }
+    if neg { out = "-" + out }
+    give out
+}
+
+pub fn evaluate(src: Text) -> Answer {
+    var s = src.trim()
+    if s.starts_with("=") { s = s.slice(1, s.len()).trim() }
+    if s == "" { give Answer { } }
+    ~~ "20% of 150"
+    let low = s.lower()
+    let of_at = low.index_of("% of ")
+    if of_at > 0 {
+        let left = s.slice(0, of_at)
+        let right = s.slice(of_at + 5, s.len())
+        let a = evaluate(left)
+        let b = evaluate(right)
+        if a.ok and b.ok { give Answer { ok: true, value: a.value * b.value / 100.0, text: show(a.value * b.value / 100.0), note: left + "% of " + right } }
+    }
+    var p = Parser { toks: tokenize(s) }
+    let v = expr(p)
+    if p.bad or peek(p).kind != "end" { give Answer { ok: false, note: p.why } }
+    give Answer { ok: true, value: v, text: show(v) }
+}

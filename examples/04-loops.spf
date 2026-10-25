@@ -1,0 +1,31 @@
+~~ Repeating work: while, for, loop, skip and break.
+use std.io
+
+fn main() {
+    var i = 0
+    while i < 3 {
+        io.say("while {i}")
+        i = i + 1
+    }
+
+    for n in 1..4 {
+        io.say("for {n}")
+    }
+
+    for word in ["red", "green", "blue"] {
+        io.say("colour {word}")
+    }
+
+    var count = 0
+    loop {
+        count = count + 1
+        if count == 2 { skip }        ~~ jump to the next turn
+        if count > 4 { break }
+        io.say("loop {count}")
+    }
+
+    let pairs = ["a": 1, "b": 2]
+    for key in pairs.keys() {
+        io.say("{key} = {pairs.get(key) ?? 0}")
+    }
+}

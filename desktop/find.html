@@ -1,0 +1,25 @@
+<!doctype html><meta charset="utf-8"><meta name="color-scheme" content="dark light">
+<style>
+html,body{margin:0;background:transparent;font:13px -apple-system,"Segoe UI",Ubuntu,sans-serif;color:#eef1fb}
+.bar{display:flex;align-items:center;gap:6px;margin:6px;padding:6px 8px;border-radius:12px;background:rgba(14,17,28,.94);border:1px solid rgba(255,255,255,.14);box-shadow:0 14px 40px -10px rgba(0,0,0,.7)}
+input{flex:1;min-width:0;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:inherit;padding:5px 8px;font:inherit;outline:none}
+input:focus{border-color:#8c9bff}
+span{color:#9aa3bd;min-width:48px;text-align:right;font-variant-numeric:tabular-nums}
+button{background:none;border:0;color:#9aa3bd;font-size:15px;cursor:pointer;border-radius:6px;padding:2px 7px}
+button:hover{background:rgba(255,255,255,.1);color:#fff}
+</style>
+<div class="bar"><input id="q" placeholder="Find in page" spellcheck="false"><span id="n"></span><button id="p" title="Previous">&#8593;</button><button id="x" title="Next">&#8595;</button><button id="c" title="Close">&#10005;</button></div>
+<script>
+var q=document.getElementById('q'),n=document.getElementById('n');
+q.addEventListener('input',function(){find.query(q.value,true)});
+q.addEventListener('keydown',function(e){
+  if(e.key==='Enter'){find.query(q.value,!e.shiftKey);e.preventDefault()}
+  if(e.key==='Escape'){find.close()}
+});
+document.getElementById('p').onclick=function(){find.query(q.value,false)};
+document.getElementById('x').onclick=function(){find.query(q.value,true)};
+document.getElementById('c').onclick=function(){find.close()};
+find.onResult(function(r){n.textContent=r.matches?(r.active+'/'+r.matches):(q.value?'0':'')});
+find.onShow(function(){q.focus();q.select()});
+window.addEventListener('load',function(){q.focus()});
+</script>

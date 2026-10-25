@@ -1,0 +1,248 @@
+~~ =====================================================================
+~~  Sreon — settings
+~~
+~~  Every option is declared once, here: its key, its kind, its default
+~~  and the words shown next to it. The settings page is drawn from this
+~~  list, so adding a line here adds a control there.
+~~ =====================================================================
+module settings
+
+use std.json
+use kit
+use store
+
+pub object Def {
+    group: Text = ""
+    key: Text = ""
+    kind: Text = "toggle"
+    label: Text = ""
+    hint: Text = ""
+    fallback: Any = ""
+    options: [Text] = []
+    lo: Int = 0
+    hi: Int = 100
+}
+
+fn toggle(group: Text, key: Text, label: Text, hint: Text, yes: Bool) -> Def {
+    give Def { group: group, key: key, kind: "toggle", label: label, hint: hint, fallback: yes }
+}
+
+fn choice(group: Text, key: Text, label: Text, hint: Text, first: Text, options: [Text]) -> Def {
+    give Def { group: group, key: key, kind: "choice", label: label, hint: hint, fallback: first, options: options }
+}
+
+fn range(group: Text, key: Text, label: Text, hint: Text, start: Int, lo: Int, hi: Int) -> Def {
+    give Def { group: group, key: key, kind: "range", label: label, hint: hint, fallback: start, lo: lo, hi: hi }
+}
+
+fn text(group: Text, key: Text, label: Text, hint: Text, start: Text) -> Def {
+    give Def { group: group, key: key, kind: "text", label: label, hint: hint, fallback: start }
+}
+
+fn area(group: Text, key: Text, label: Text, hint: Text, start: Text) -> Def {
+    give Def { group: group, key: key, kind: "area", label: label, hint: hint, fallback: start }
+}
+
+fn colour(group: Text, key: Text, label: Text, hint: Text, start: Text) -> Def {
+    give Def { group: group, key: key, kind: "color", label: label, hint: hint, fallback: start }
+}
+
+pub fn groups() -> [[Text]] {
+    give [["appearance", "Appearance", "contrast"], ["sidebar", "Sidebar & tabs", "sidebar"], ["newtab", "New tab", "newtab"],
+          ["search", "Search", "search"], ["shield", "Shield", "shield"], ["privacy", "Privacy", "eye-off"],
+          ["speed", "Speed", "bolt"], ["startup", "Startup", "power"], ["studio", "Studio", "code"],
+          ["keys", "Shortcuts", "command"], ["advanced", "Advanced", "sliders"]]
+}
+
+pub fn defs() -> [Def] {
+    var d: [Def] = []
+
+    ~~ ------------------------------------------------------ appearance
+    d.push(choice("appearance", "theme", "Theme", "Celestial is the deep-space default. Auto follows your Mac.",
+                  "celestial", ["celestial", "midnight", "graphite", "abyss", "forest", "rose", "dusk", "paper", "auto"]))
+    d.push(colour("appearance", "accent", "Accent colour", "Buttons, focus rings and highlights.", "#8c9bff"))
+    d.push(colour("appearance", "accent2", "Second accent", "Only used when gradient accents are on.", "#5fe3ff"))
+    d.push(toggle("appearance", "gradient", "Gradient accents", "Blend both accents instead of one flat colour.", false))
+    d.push(choice("appearance", "font", "Interface font", "System is San Francisco, as on the rest of your Mac.",
+                  "system", ["system", "rounded", "serif", "mono"]))
+    d.push(range("appearance", "scale", "Interface size", "Scales every control, in percent.", 100, 85, 130))
+    d.push(range("appearance", "radius", "Corner roundness", "From sharp to pill-shaped, in points.", 12, 2, 26))
+    d.push(range("appearance", "blur", "Glass blur", "How frosted the translucent surfaces look.", 28, 0, 48))
+    d.push(toggle("appearance", "glass", "Translucent window", "Let your desktop show faintly through the sidebar.", true))
+    d.push(choice("appearance", "density", "Density", "How much room each row gets.", "comfortable",
+                  ["cozy", "comfortable", "compact"]))
+    d.push(toggle("appearance", "motion", "Animations", "Turn off for instant, motionless changes.", true))
+    d.push(toggle("appearance", "dark_pages", "Dark mode for websites", "Darken light pages. Images and video stay as they are.", false))
+
+    ~~ -------------------------------------------------- sidebar & tabs
+    d.push(choice("sidebar", "side", "Sidebar position", "Tabs on the left or right edge.", "left", ["left", "right"]))
+    d.push(range("sidebar", "side_width", "Sidebar width", "In points. Drag-free and exact.", 264, 200, 380))
+    d.push(choice("sidebar", "side_mode", "Sidebar style", "Expanded shows titles, compact shows only icons, hidden is on demand.",
+                  "expanded", ["expanded", "compact", "hidden"]))
+        d.push(toggle("sidebar", "tab_close_hover", "Close button on hover", "Otherwise every tab always shows one.", true))
+    d.push(toggle("sidebar", "new_tab_next", "Open new tabs next to this one", "Otherwise they go to the end.", true))
+    d.push(toggle("sidebar", "panel_open", "Keep the right panel open", "Shield, Brief, Notes and Tools beside every page.", false))
+    d.push(range("sidebar", "panel_width", "Right panel width", "In points.", 340, 280, 520))
+    d.push(toggle("sidebar", "toolbar_labels", "Show the full address", "Otherwise just the site name.", false))
+    d.push(toggle("sidebar", "workspaces", "Workspaces", "Keep Personal, Work and other groups of tabs apart.", true))
+
+    ~~ ------------------------------------------------------- new tab
+    d.push(choice("newtab", "nt_bg", "Background", "What sits behind the new tab page.", "cosmos",
+                  ["cosmos", "aurora", "mesh", "nebula", "dusk", "solid", "custom"]))
+    d.push(text("newtab", "nt_custom", "Custom background", "Any colour or gradient, e.g. linear-gradient(135deg,#222,#445).", ""))
+    d.push(text("newtab", "name", "Your name", "Used only for the greeting, kept on this Mac.", ""))
+    d.push(toggle("newtab", "nt_dock", "Show the dock", "Your apps along the bottom, like a desktop.", true))
+    d.push(toggle("newtab", "nt_clock", "Show the clock", "", true))
+    d.push(toggle("newtab", "clock_24h", "24-hour clock", "", false))
+    d.push(toggle("newtab", "nt_search", "Show the search box", "", true))
+    d.push(toggle("newtab", "nt_dial", "Show favourite sites", "", true))
+    d.push(toggle("newtab", "nt_stats", "Show Shield summary", "", true))
+    d.push(toggle("newtab", "nt_tip", "Show a tip", "A small thing Sreon can do that you may not know.", true))
+    d.push(area("newtab", "dial", "Favourite sites", "One per line:  name | address", "Wikipedia | https://wikipedia.org\nGitHub | https://github.com\nHacker News | https://news.ycombinator.com\nYouTube | https://youtube.com\nReddit | https://reddit.com\nSreon Studio | sreon://studio"))
+
+    ~~ --------------------------------------------------------- search
+    d.push(choice("search", "engine", "Search engine", "Sreon never adds tracking of its own to a search.", "duckduckgo",
+                  ["duckduckgo", "brave", "startpage", "ecosia", "qwant", "mojeek", "bing", "yahoo", "kagi", "custom"]))
+    d.push(text("search", "engine_custom", "Custom search address", "Use %s where the words go.", "https://duckduckgo.com/?q=%s"))
+    d.push(toggle("search", "dev_bangs", "Developer shortcuts", "gh, so, mdn, npm, crates, pypi, go, hn, caniuse and more. Type  gh rust async  or  !npm lodash.", true))
+    d.push(text("search", "dev_prefix", "Developer search keyword", "Type this, a space, then your question, to use your developer engine.", "d"))
+    d.push(choice("search", "dev_engine", "Developer search engine", "Used for the keyword above. Pick Custom for any address.", "stackoverflow",
+                  ["stackoverflow", "github", "mdn", "devdocs", "sourcegraph", "grep", "custom"]))
+    d.push(text("search", "dev_engine_custom", "Custom developer address", "Use %s where the words go, e.g. https://docs.rs/releases/search?query=%s", "https://docs.rs/releases/search?query=%s"))
+    d.push(toggle("search", "suggest", "Suggest from your own history", "Instant, offline and private.", true))
+    d.push(toggle("search", "suggest_tools", "Suggest tools and answers", "Calculator, conversions, colours and commands in the bar.", true))
+    d.push(area("search", "keywords", "Keyword shortcuts", "Type the keyword, a space, then your words.  keyword = address with %s",
+                "yt = https://www.youtube.com/results?search_query=%s\nw = https://en.wikipedia.org/wiki/Special:Search?search=%s\ngh = https://github.com/search?q=%s\nmaps = https://maps.apple.com/?q=%s\nmdn = https://developer.mozilla.org/en-US/search?q=%s"))
+
+    ~~ ---------------------------------------------------------- shield
+    d.push(toggle("shield", "shield", "Shield", "Block advertising, tracking and clutter before it loads.", true))
+    d.push(choice("shield", "level", "Strength", "Standard keeps every site working. Strict is firmer. Maximum blocks all third parties.",
+                  "strict", ["standard", "strict", "maximum"]))
+    d.push(toggle("shield", "ads", "Advertising", "Banners, pop-unders, sponsored slots, ad networks.", true))
+    d.push(toggle("shield", "trackers", "Trackers and analytics", "Cross-site tracking, session recorders, fingerprinting.", true))
+    d.push(toggle("shield", "social", "Social buttons and widgets", "Like, share and embed trackers.", true))
+    d.push(toggle("shield", "cookies", "Cookie and consent banners", "Hidden, so you are not asked at every site.", true))
+    d.push(toggle("shield", "annoy", "Annoyances", "Newsletter pop-ups, chat bubbles, notification prompts.", true))
+    d.push(toggle("shield", "video_ads", "Video ads", "Skips and mutes ads on video sites.", true))
+    d.push(toggle("shield", "popups", "Pop-up windows", "Blocks windows a page opens without you asking.", true))
+    d.push(toggle("shield", "miners", "Crypto miners", "", true))
+    d.push(toggle("shield", "https", "Always use HTTPS", "Upgrade plain http addresses when the site supports it.", true))
+    d.push(toggle("shield", "strip", "Clean tracking from links", "Removes utm_, fbclid and similar from addresses.", true))
+    d.push(toggle("shield", "gpc", "Send Global Privacy Control", "Tells sites you do not consent to being sold or shared.", true))
+    d.push(area("shield", "allow", "Sites with Shield off", "One site per line, e.g. example.com", ""))
+    d.push(area("shield", "custom_rules", "Your own rules", "One per line.  ||ads.example.com^   or   example.com##.banner", ""))
+
+    ~~ --------------------------------------------------------- privacy
+    d.push(toggle("privacy", "history", "Remember history", "Kept on this Mac, used for suggestions.", true))
+    d.push(range("privacy", "history_days", "Keep history for", "Days.", 90, 1, 365))
+    d.push(toggle("privacy", "clear_quit", "Clear browsing data when quitting", "Cookies, cache and site storage.", false))
+    d.push(toggle("privacy", "clean_copy", "Copy clean links", "The Copy Link command removes tracking first.", true))
+    d.push(toggle("privacy", "block_autoplay", "Stop media autoplaying", "Videos wait until you press play.", true))
+    d.push(area("privacy", "focus_sites", "Sites to block in Focus mode", "One per line. Applies while Focus mode or a timer is running.", "reddit.com\nx.com\ntwitter.com\nfacebook.com\ninstagram.com\ntiktok.com"))
+    d.push(toggle("privacy", "notifs", "Allow site notifications", "Off means no site can ask.", false))
+
+    ~~ ----------------------------------------------------------- speed
+    d.push(toggle("speed", "sleep", "Put idle tabs to sleep", "Frees memory. A sleeping tab wakes the moment you click it.", true))
+    d.push(range("speed", "sleep_min", "Sleep after", "Minutes without being looked at.", 15, 2, 120))
+    d.push(toggle("speed", "preconnect", "Prepare the connection while you type", "Opens a connection to a likely site early.", true))
+    d.push(toggle("speed", "images", "Load images", "Off for the fastest, leanest pages.", true))
+    d.push(toggle("speed", "js", "Run page scripts", "Off blocks all JavaScript. Many sites will stop working.", true))
+
+    ~~ --------------------------------------------------------- startup
+    d.push(choice("startup", "startup", "When Sreon opens", "", "newtab", ["newtab", "restore", "home"]))
+    d.push(toggle("startup", "boot_anim", "Startup animation", "Play the Sreon mark while the app opens. Takes effect next launch.", true))
+    d.push(text("startup", "home", "Home page", "", "sreon://newtab"))
+    d.push(toggle("startup", "default_hint", "Offer to be the default browser", "", true))
+
+    ~~ ----------------------------------------------------------- studio
+    d.push(range("studio", "st_font", "Editor text size", "Points.", 14, 10, 28))
+    d.push(range("studio", "st_tab", "Spaces per indent", "", 4, 2, 8))
+    d.push(range("studio", "st_timeout", "Stop a program after", "Seconds. Keeps a runaway loop from hanging Sreon.", 8, 1, 60))
+    d.push(toggle("studio", "st_wrap", "Wrap long lines", "", false))
+    d.push(toggle("studio", "st_autorun", "Run when you stop typing", "", false))
+    d.push(toggle("studio", "st_lines", "Line numbers", "", true))
+    d.push(toggle("studio", "st_ligatures", "Font ligatures", "", true))
+
+    ~~ ---------------------------------------------------------- advanced
+    d.push(text("advanced", "ua", "User agent", "Leave empty to look like Safari on your Mac.", ""))
+    d.push(toggle("advanced", "inspect", "Developer tools", "Right-click a page and choose Inspect.", true))
+    d.push(toggle("advanced", "rtl", "Show page titles in the window bar", "", true))
+
+    give d
+}
+
+~~ ----------------------------------------------------------- shortcuts
+pub fn actions() -> [[Text]] {
+    give [["new_tab", "New tab", "cmd+t"], ["close_tab", "Close tab", "cmd+w"],
+          ["reopen_tab", "Reopen closed tab", "cmd+shift+t"], ["palette", "Open the bar", "cmd+l"],
+          ["search_tabs", "Search tabs and everything", "cmd+k"],
+          ["toggle_sidebar", "Show or hide the sidebar", "cmd+s"], ["toggle_panel", "Show or hide the right panel", "cmd+."],
+          ["reader", "Reader", "cmd+shift+r"], ["brief", "Brief this page", "cmd+shift+b"],
+          ["focus", "Focus mode", "cmd+shift+f"], ["find", "Find in page", "cmd+f"],
+          ["studio", "Open Studio", "cmd+shift+s"], ["settings", "Settings", "cmd+,"],
+          ["back", "Back", "cmd+["], ["forward", "Forward", "cmd+]"], ["reload", "Reload", "cmd+r"],
+          ["zoom_in", "Zoom in", "cmd+="], ["zoom_out", "Zoom out", "cmd+-"], ["zoom_reset", "Actual size", "cmd+0"],
+          ["split", "Split view", "cmd+shift+d"], ["next_tab", "Next tab", "ctrl+tab"], ["prev_tab", "Previous tab", "ctrl+shift+tab"],
+          ["pin_tab", "Pin or unpin tab", "cmd+shift+p"], ["screenshot", "Screenshot of the page", "cmd+shift+4"],
+          ["copy_link", "Copy clean link", "cmd+shift+c"], ["sleep_tab", "Put this tab to sleep", "cmd+shift+z"],
+          ["whiteboard", "Open Whiteboard", "cmd+shift+w"], ["new_window", "New window", "cmd+n"], ["private", "New private window", "cmd+shift+n"]]
+}
+
+~~ ---------------------------------------------------------- the values
+pub fn defaults() -> Map<Text, Any> {
+    var m: Map<Text, Any> = [:]
+    for def in defs() { m.set(def.key, def.fallback) }
+    give m
+}
+
+pub fn load() -> Map<Text, Any> {
+    var m = defaults()
+    let saved = store.read_map("settings")
+    for k in saved.keys() {
+        if m.has(k) { m.set(k, saved.get(k) ?? "") }
+    }
+    give m
+}
+
+pub fn save(m: Map<Text, Any>) {
+    var diff: Map<Text, Any> = [:]
+    let base = defaults()
+    for k in m.keys() {
+        let a = json.write(m.get(k) ?? "")
+        let b = json.write(base.get(k) ?? "")
+        if a != b { diff.set(k, m.get(k) ?? "") }
+    }
+    store.write("settings", diff)
+}
+
+pub fn shortcuts() -> Map<Text, Any> {
+    var m: Map<Text, Any> = [:]
+    for a in actions() { m.set(a[0], a[2]) }
+    let saved = store.read_map("shortcuts")
+    for k in saved.keys() { if m.has(k) { m.set(k, saved.get(k) ?? "") } }
+    give m
+}
+
+pub fn def_of(key: Text) -> Def {
+    for d in defs() { if d.key == key { give d } }
+    give Def { }
+}
+
+pub fn flag(m: Map<Text, Any>, key: Text) -> Bool => kit.gb(m, key, false)
+pub fn str(m: Map<Text, Any>, key: Text) -> Text => kit.gt(m, key)
+pub fn int(m: Map<Text, Any>, key: Text) -> Int => kit.gi(m, key, 0)
+
+~~ Coerce whatever the page sent to the kind the setting expects.
+pub fn coerce(def: Def, raw: Any) -> Any {
+    let t = to_text(raw)
+    if def.kind == "toggle" { give t == "true" or t == "1" }
+    if def.kind == "range" {
+        let n = to_int(t.to_num() ?? to_num(to_int(to_text(def.fallback).to_num() ?? 0.0)))
+        give kit.clamp_i(n, def.lo, def.hi)
+    }
+    if def.kind == "choice" {
+        for o in def.options { if o == t { give t } }
+        give def.fallback
+    }
+    give t
+}

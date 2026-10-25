@@ -1,0 +1,354 @@
+~~ =====================================================================
+~~  Sreon — board
+~~
+~~  The whiteboard. Strokes and shapes are kept as plain data and drawn
+~~  as SVG, so a board saves as a small JSON file and exports as a
+~~  picture that opens anywhere.
+~~ =====================================================================
+module board
+
+use std.fs
+use std.json
+use std.math
+use std.sys
+use std.time
+use kit
+use store
+use state
+use icons
+
+pub fn colors() -> [Text] => ["#f5f5f7", "#ff6b6b", "#ffa94d", "#ffd43b", "#69db7c", "#4fd1ff", "#8b7cff", "#f783ac"]
+
+fn cur(a: state.App) -> Map<Text, Any> => kit.gm(a.studio, "board")
+
+fn put(a: state.App, b: Map<Text, Any>) { a.studio.set("board", b) }
+
+pub fn fresh(name: Text) -> Map<Text, Any> {
+    give ["name": name, "items": [], "undo": [], "redo": [], "tool": "pen", "color": "#f5f5f7", "width": 4, "grid": true, "view": [0, 0, 1600, 1000], "bg": "dark"]
+}
+
+pub fn ensure(a: state.App) -> Map<Text, Any> {
+    var b = cur(a)
+    if b.len() == 0 {
+        let saved = store.read_map("boards/current")
+        b = fresh("Untitled board")
+        if saved.len() > 0 {
+            b.set("items", kit.gl(saved, "items"))
+            b.set("name", kit.gt_or(saved, "name", "Untitled board"))
+            b.set("view", kit.gl(saved, "view"))
+        }
+        put(a, b)
+    }
+    give b
+}
+
+fn nv(v: Any) -> Num => to_text(v).to_num() ?? 0.0
+
+fn pt_of(item: Map<Text, Any>, i: Int) -> [Num] {
+    let pts = kit.gl(item, "pts")
+    if i >= pts.len() { give [0.0, 0.0] }
+    let p: [Any] = pts[i]
+    if p.len() < 2 { give [0.0, 0.0] }
+    give [nv(p[0]), nv(p[1])]
+}
+
+fn f1(v: Num) -> Text => kit.num_fmt(v, 1)
+
+~~ ------------------------------------------------------------ drawing
+fn wrap(t: Text, width: Int) -> [Text] {
+    var lines: [Text] = []
+    var cur_line = ""
+    for w in t.split(" ") {
+        if cur_line.len() + w.len() + 1 > width and cur_line != "" { lines.push(cur_line); cur_line = w }
+        else if cur_line == "" { cur_line = w }
+        else { cur_line = cur_line + " " + w }
+    }
+    if cur_line != "" { lines.push(cur_line) }
+    give lines
+}
+
+pub fn item_svg(item: Map<Text, Any>) -> Text {
+    let t = kit.gt(item, "t")
+    let c = kit.gt_or(item, "c", "#f5f5f7")
+    let w = kit.gn(item, "w", 3.0)
+    let pts = kit.gl(item, "pts")
+    if pts.len() == 0 { give "" }
+    let a = pt_of(item, 0)
+    let b = pt_of(item, 1)
+    if t == "pen" or t == "highlighter" {
+        let hi = t == "highlighter"
+        let sw = kit.sel(hi, f1(w * 4.0), f1(w))
+        let op = kit.sel(hi, " opacity=\".35\"", "")
+        if pts.len() == 1 { give "<circle cx=\"" + f1(a[0]) + "\" cy=\"" + f1(a[1]) + "\" r=\"" + f1(w / 2.0 + 0.5) + "\" fill=\"" + c + "\"" + op + "/>" }
+        var d = "M" + f1(a[0]) + " " + f1(a[1])
+        var i = 1
+        while i < pts.len() { let q = pt_of(item, i); d = d + " L" + f1(q[0]) + " " + f1(q[1]); i = i + 1 }
+        give "<path d=\"" + d + "\" fill=\"none\" stroke=\"" + c + "\" stroke-width=\"" + sw + "\" stroke-linecap=\"round\" stroke-linejoin=\"round\"" + op + "/>"
+    }
+    if t == "rect" {
+        give "<rect x=\"" + f1(math.min(a[0], b[0])) + "\" y=\"" + f1(math.min(a[1], b[1])) + "\" width=\"" + f1(math.abs(b[0] - a[0])) + "\" height=\"" + f1(math.abs(b[1] - a[1])) + "\" rx=\"10\" fill=\"" + c + "14\" stroke=\"" + c + "\" stroke-width=\"" + f1(w) + "\"/>"
+    }
+    if t == "ellipse" {
+        give "<ellipse cx=\"" + f1((a[0] + b[0]) / 2.0) + "\" cy=\"" + f1((a[1] + b[1]) / 2.0) + "\" rx=\"" + f1(math.abs(b[0] - a[0]) / 2.0) + "\" ry=\"" + f1(math.abs(b[1] - a[1]) / 2.0) + "\" fill=\"" + c + "14\" stroke=\"" + c + "\" stroke-width=\"" + f1(w) + "\"/>"
+    }
+    if t == "line" or t == "arrow" {
+        var s = "<line x1=\"" + f1(a[0]) + "\" y1=\"" + f1(a[1]) + "\" x2=\"" + f1(b[0]) + "\" y2=\"" + f1(b[1]) + "\" stroke=\"" + c + "\" stroke-width=\"" + f1(w) + "\" stroke-linecap=\"round\"/>"
+        if t == "arrow" {
+            let ang = math.atan2(b[1] - a[1], b[0] - a[0])
+            let len = 12.0 + w * 2.0
+            let x1 = b[0] - len * math.cos(ang - 0.45)
+            let y1 = b[1] - len * math.sin(ang - 0.45)
+            let x2 = b[0] - len * math.cos(ang + 0.45)
+            let y2 = b[1] - len * math.sin(ang + 0.45)
+            s = s + "<path d=\"M" + f1(x1) + " " + f1(y1) + " L" + f1(b[0]) + " " + f1(b[1]) + " L" + f1(x2) + " " + f1(y2) + "\" fill=\"none\" stroke=\"" + c + "\" stroke-width=\"" + f1(w) + "\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+        }
+        give s
+    }
+    if t == "text" {
+        give "<text x=\"" + f1(a[0]) + "\" y=\"" + f1(a[1]) + "\" fill=\"" + c + "\" font-size=\"" + f1(18.0 + w * 2.0) + "\" font-weight=\"560\">" + kit.esc(kit.gt(item, "text")) + "</text>"
+    }
+    if t == "note" {
+        let lines = wrap(kit.gt(item, "text"), 18)
+        var s = "<g><rect x=\"" + f1(a[0]) + "\" y=\"" + f1(a[1]) + "\" width=\"190\" height=\"" + (46 + lines.len() * 22).to_text() + "\" rx=\"6\" fill=\"" + c + "\" filter=\"url(#bshadow)\"/>"
+        var k = 0
+        for ln in lines {
+            s = s + "<text x=\"" + f1(a[0] + 14.0) + "\" y=\"" + (to_int(a[1]) + 34 + k * 22).to_text() + "\" fill=\"#1b1b22\" font-size=\"16\" font-weight=\"560\">" + kit.esc(ln) + "</text>"
+            k = k + 1
+        }
+        give s + "</g>"
+    }
+    give ""
+}
+
+pub fn items_svg(b: Map<Text, Any>) -> Text {
+    var s = ""
+    var i = 0
+    for it in kit.gl(b, "items") {
+        let m: Map<Text, Any> = it
+        s = s + item_svg(m)
+        i = i + 1
+    }
+    give s
+}
+
+fn note_color(c: Text) -> Text {
+    if c == "#f5f5f7" { give "#ffd43b" }
+    give c
+}
+
+pub fn canvas(b: Map<Text, Any>) -> Text {
+    let v = kit.gl(b, "view")
+    var vb = "0 0 1600 1000"
+    if v.len() == 4 { vb = to_text(v[0]) + " " + to_text(v[1]) + " " + to_text(v[2]) + " " + to_text(v[3]) }
+    let light = kit.gt(b, "bg") == "light"
+    var s = "<svg id=\"bsvg\" class=\"bsvg\" viewBox=\"" + vb + "\" data-gesture=\"board.draw\" data-zoom data-tool=\"" + kit.gt(b, "tool") + "\" data-color=\"" + kit.gt(b, "color") + "\" data-width=\"" + kit.gt(b, "width") + "\">"
+    s = s + "<defs><pattern id=\"bgrid\" width=\"40\" height=\"40\" patternUnits=\"userSpaceOnUse\"><circle cx=\"1.5\" cy=\"1.5\" r=\"1.5\" fill=\"" + kit.sel(light, "#00000026", "#ffffff22") + "\"/></pattern>"
+    s = s + "<filter id=\"bshadow\" x=\"-20%\" y=\"-20%\" width=\"140%\" height=\"150%\"><feDropShadow dx=\"0\" dy=\"6\" stdDeviation=\"8\" flood-opacity=\".35\"/></filter></defs>"
+    s = s + "<rect x=\"-20000\" y=\"-20000\" width=\"40000\" height=\"40000\" fill=\"" + kit.sel(light, "#f7f7fa", "transparent") + "\"/>"
+    if kit.gb(b, "grid", true) { s = s + "<rect x=\"-20000\" y=\"-20000\" width=\"40000\" height=\"40000\" fill=\"url(#bgrid)\"/>" }
+    s = s + "<g data-region=\"bitems\">" + items_svg(b) + "</g><g data-preview></g></svg>"
+    give s
+}
+
+fn ba(name: Text, args: Map<Text, Any>) -> Text => " data-act=\"" + name + "\" data-a=\"" + kit.jattr(args) + "\""
+
+fn tool_btn(b: Map<Text, Any>, id: Text, icon: Text, label: Text) -> Text {
+    let active = kit.gt(b, "tool") == id
+    give "<button class=\"ib" + kit.sel(active, " on", "") + "\" title=\"" + label + "\"" + ba("board.tool", ["tool": id]) + ">" + icons.svg(icon) + "</button>"
+}
+
+pub fn toolbar(b: Map<Text, Any>) -> Text {
+    var s = "<div class=\"btools\">"
+    for t in [["pen", "pen", "Pen"], ["highlighter", "highlighter", "Highlighter"], ["eraser", "eraser", "Eraser"], ["line", "line", "Line"], ["arrow", "arrow", "Arrow"], ["rect", "rect", "Rectangle"], ["ellipse", "ellipse", "Ellipse"], ["text", "text", "Text"], ["note", "sticky", "Sticky note"], ["pan", "hand", "Pan (scroll to move, pinch to zoom)"]] {
+        s = s + tool_btn(b, t[0], t[1], t[2])
+    }
+    s = s + "<span class=\"vsep\"></span>"
+    for c in colors() {
+        s = s + "<button class=\"dot" + kit.sel(kit.gt(b, "color") == c, " on", "") + "\" style=\"background:" + c + "\" title=\"" + c + "\"" + ba("board.color", ["color": c]) + "></button>"
+    }
+    s = s + "<span class=\"vsep\"></span>"
+    for wd in [2, 4, 8] {
+        s = s + "<button class=\"ib" + kit.sel(kit.gi(b, "width", 3) == wd, " on", "") + "\" title=\"Thickness " + wd.to_text() + "\"" + ba("board.width", ["w": wd]) + "><svg class=\"i\" viewBox=\"0 0 24 24\"><path d=\"M4 12h16\" stroke-width=\"" + (wd / 2 + 1).to_text() + "\"/></svg></button>"
+    }
+    s = s + "<span class=\"vsep\"></span>"
+    s = s + "<button class=\"ib\" title=\"Undo\" data-act=\"board.undo\">" + icons.svg("undo") + "</button><button class=\"ib\" title=\"Redo\" data-act=\"board.redo\">" + icons.svg("redo") + "</button>"
+    s = s + "<button class=\"ib" + kit.sel(kit.gb(b, "grid", true), " on", "") + "\" title=\"Dot grid\" data-act=\"board.grid\">" + icons.svg("grid") + "</button>"
+    s = s + "<button class=\"ib\" title=\"Light or dark paper\" data-act=\"board.paper\">" + icons.svg("sun") + "</button>"
+    s = s + "<button class=\"ib\" title=\"Clear board\" data-act=\"board.clear\">" + icons.svg("trash") + "</button>"
+    s = s + "<span class=\"sp\"></span><button class=\"btn sm\" data-act=\"board.new\">" + icons.svg("plus") + "New</button>"
+    s = s + "<button class=\"btn sm\" data-act=\"board.export\">" + icons.svg("download") + "Export SVG</button>"
+    give s + "</div>"
+}
+
+pub fn page(a: state.App) -> Text {
+    let b = ensure(a)
+    give "<div class=\"board\"><div data-region=\"btools\">" + toolbar(b) + "</div><div class=\"bwrap\"><div data-region=\"bcanvas\" class=\"bcv\">" + canvas(b) + "</div><div class=\"bhint\">Draw with the pointer. Scroll to move, pinch or ⌘-scroll to zoom. The board saves itself.</div></div></div>"
+}
+
+~~ ------------------------------------------------------------- history
+fn snapshot(b: Map<Text, Any>) {
+    var undo = kit.gl(b, "undo")
+    undo.push(kit.gl(b, "items").slice(0, kit.gl(b, "items").len()))
+    if undo.len() > 60 { undo = undo.slice(undo.len() - 60, undo.len()) }
+    b.set("undo", undo)
+    b.set("redo", [])
+}
+
+fn persist(b: Map<Text, Any>) {
+    store.write("boards/current", ["name": kit.gt(b, "name"), "items": kit.gl(b, "items"), "view": kit.gl(b, "view")])
+}
+
+fn near(p: [Num], q: [Num], r: Num) -> Bool {
+    let dx = p[0] - q[0]
+    let dy = p[1] - q[1]
+    give dx * dx + dy * dy <= r * r
+}
+
+fn hit_points(item: Map<Text, Any>) -> [[Num]] {
+    let t = kit.gt(item, "t")
+    var out: [[Num]] = []
+    let n = kit.gl(item, "pts").len()
+    if t == "pen" or t == "highlighter" {
+        var i = 0
+        while i < n { out.push(pt_of(item, i)); i = i + 1 }
+        give out
+    }
+    let a = pt_of(item, 0)
+    let b = pt_of(item, 1)
+    if t == "text" { out.push(a); out.push([a[0] + 30.0, a[1] - 8.0]); give out }
+    if t == "note" { out.push([a[0] + 90.0, a[1] + 40.0]); out.push([a[0] + 20.0, a[1] + 20.0]); out.push([a[0] + 160.0, a[1] + 60.0]); give out }
+    var k = 0
+    while k <= 8 {
+        let f = to_num(k) / 8.0
+        if t == "rect" {
+            out.push([a[0] + (b[0] - a[0]) * f, a[1]])
+            out.push([a[0] + (b[0] - a[0]) * f, b[1]])
+            out.push([a[0], a[1] + (b[1] - a[1]) * f])
+            out.push([b[0], a[1] + (b[1] - a[1]) * f])
+        }
+        else if t == "ellipse" {
+            let cx = (a[0] + b[0]) / 2.0
+            let cy = (a[1] + b[1]) / 2.0
+            let ang = f * 6.2832
+            out.push([cx + (b[0] - a[0]) / 2.0 * math.cos(ang), cy + (b[1] - a[1]) / 2.0 * math.sin(ang)])
+        }
+        else { out.push([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]) }
+        k = k + 1
+    }
+    give out
+}
+
+fn erase(b: Map<Text, Any>, pts: [Any]) -> Bool {
+    var keep: [Any] = []
+    var removed = false
+    for it in kit.gl(b, "items") {
+        let m: Map<Text, Any> = it
+        let hp = hit_points(m)
+        var hit = false
+        for q in pts {
+            let qa: [Any] = q
+            let qp = [nv(qa[0]), nv(qa[1])]
+            for h in hp { if near(h, qp, 20.0) { hit = true; break } }
+            if hit { break }
+        }
+        if hit { removed = true } else { keep.push(it) }
+    }
+    if removed { snapshot(b); b.set("items", keep) }
+    give removed
+}
+
+pub fn act(a: state.App, name: Text, args: Map<Text, Any>) -> state.Reply {
+    let r = state.Reply { }
+    var b = ensure(a)
+    if name == "board.draw" {
+        let tool = kit.gt(args, "tool")
+        if tool == "pan" {
+            b.set("view", kit.gl(args, "view"))
+            persist(b)
+            give r
+        }
+        let pts = kit.gl(args, "pts")
+        if pts.len() == 0 { give r }
+        if tool == "eraser" {
+            if erase(b, pts) { r.region("bitems", items_svg(b)); persist(b) }
+            give r
+        }
+        snapshot(b)
+        var item: Map<Text, Any> = ["t": tool, "pts": pts, "c": kit.gt_or(args, "color", "#f5f5f7"), "w": kit.gn(args, "width", 3.0)]
+        if tool == "note" { item.set("c", note_color(kit.gt(item, "c"))) }
+        if tool == "text" or tool == "note" { item.set("text", kit.gt(args, "text")) }
+        var items = kit.gl(b, "items")
+        items.push(item)
+        b.set("items", items)
+        r.region("bitems", items_svg(b))
+        persist(b)
+        give r
+    }
+    if name == "board.tool" {
+        b.set("tool", kit.gt(args, "tool"))
+        r.attrs = ["#bsvg": ["data-tool": kit.gt(args, "tool")]]
+        r.region("btools", toolbar(b))
+        give r
+    }
+    if name == "board.color" {
+        b.set("color", kit.gt(args, "color"))
+        r.attrs = ["#bsvg": ["data-color": kit.gt(args, "color")]]
+        r.region("btools", toolbar(b))
+        give r
+    }
+    if name == "board.width" {
+        b.set("width", kit.gi(args, "w", 3))
+        r.attrs = ["#bsvg": ["data-width": kit.gt(args, "w")]]
+        r.region("btools", toolbar(b))
+        give r
+    }
+    if name == "board.undo" or name == "board.redo" {
+        let from = kit.sel(name == "board.undo", "undo", "redo")
+        let to = kit.sel(name == "board.undo", "redo", "undo")
+        var src = kit.gl(b, from)
+        if src.len() == 0 { r.toast = "Nothing to " + kit.sel(name == "board.undo", "undo", "redo"); give r }
+        var dst = kit.gl(b, to)
+        dst.push(kit.gl(b, "items"))
+        let prev = src[src.len() - 1]
+        src = src.slice(0, src.len() - 1)
+        b.set(from, src)
+        b.set(to, dst)
+        b.set("items", prev)
+        r.region("bitems", items_svg(b))
+        persist(b)
+        give r
+    }
+    if name == "board.grid" { b.set("grid", not kit.gb(b, "grid", true)); r.region("bcanvas", canvas(b)); r.region("btools", toolbar(b)); give r }
+    if name == "board.paper" { b.set("bg", kit.sel(kit.gt(b, "bg") == "light", "dark", "light")); r.region("bcanvas", canvas(b)); give r }
+    if name == "board.clear" {
+        snapshot(b)
+        b.set("items", [])
+        r.region("bitems", "")
+        persist(b)
+        r.toast = "Board cleared. Undo brings it back."
+        give r
+    }
+    if name == "board.new" {
+        persist(b)
+        a.studio.set("board", fresh("Untitled board"))
+        persist(cur(a))
+        r.region("studio-main", page(a))
+        give r
+    }
+    if name == "board.export" {
+        let dir = state_dir()
+        fs.mkdir(dir)
+        let file = dir + "/" + kit.stamp(time.now(), "board-%Y%m%d-%H%M%S") + ".svg"
+        let v = kit.gl(b, "view")
+        var vb = "0 0 1600 1000"
+        if v.len() == 4 { vb = to_text(v[0]) + " " + to_text(v[1]) + " " + to_text(v[2]) + " " + to_text(v[3]) }
+        let light = kit.gt(b, "bg") == "light"
+        let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"" + vb + "\" width=\"1600\" height=\"1000\"><rect x=\"-20000\" y=\"-20000\" width=\"40000\" height=\"40000\" fill=\"" + kit.sel(light, "#f7f7fa", "#12121a") + "\"/><defs><filter id=\"bshadow\"><feDropShadow dx=\"0\" dy=\"6\" stdDeviation=\"8\" flood-opacity=\".35\"/></filter></defs>" + items_svg(b) + "</svg>"
+        if fs.write(file, svg) { r.toast = "Saved to Sreon Studio"; r.do(["do": "reveal", "path": file]) }
+        else { r.toast = "Couldn't save the picture" }
+        give r
+    }
+    give r
+}
+
+fn state_dir() -> Text => (sys.env("HOME") ?? ".") + "/Documents/Sreon Studio"

@@ -1,0 +1,36 @@
+~~ Tasks, futures and channels.
+use std.io
+use std.thread
+use std.task
+
+task slow_double(n: Int) -> Int {
+    give n * 2
+}
+
+fn main() {
+    ~~ spawn starts work, await collects it
+    let jobs = [spawn slow_double(1), spawn slow_double(2), spawn slow_double(3)]
+    var total = 0
+    for job in jobs {
+        total = total + await job
+    }
+    io.say("all jobs gave {total}")
+
+    ~~ channels pass values between workers
+    let pipe = thread.channel(8)
+    for n in 1..5 {
+        pipe.send(n * 10)
+    }
+    io.say("pipe holds {pipe.len()} values")
+    var drained = []
+    while pipe.len() > 0 {
+        drained.push(pipe.recv() ?? 0)
+    }
+    io.say("drained {drained}")
+
+    ~~ locks protect shared state
+    let guard = thread.lock()
+    thread.acquire(guard)
+    io.say("critical section, {thread.cpus()} cpus available")
+    thread.release(guard)
+}

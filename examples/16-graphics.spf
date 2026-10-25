@@ -1,0 +1,39 @@
+~~ Drawing a picture and saving it as a PNG.
+use std.io
+use std.draw
+use std.math
+
+fn main() {
+    let w = 480
+    let h = 300
+    let canvas = draw.canvas(w, h)
+    draw.clear(canvas, draw.rgb(11, 11, 13))
+
+    ~~ an amber grid
+    var x = 0
+    while x < w {
+        draw.line(canvas, x, 0, x, h, draw.rgb(24, 22, 20))
+        x = x + 30
+    }
+
+    ~~ a sine wave
+    var i = 0
+    while i < w {
+        let t = i.to_num() / 40.0
+        let y = (h.to_num() / 2.0) + math.sin(t) * 70.0
+        draw.pixel(canvas, i, y.to_int() ?? 0, draw.rgb(255, 161, 54))
+        draw.pixel(canvas, i, (y.to_int() ?? 0) + 1, draw.rgb(180, 110, 30))
+        i = i + 1
+    }
+
+    draw.rect(canvas, 20, 20, 140, 46, draw.rgb(255, 161, 54))
+    draw.text(canvas, 30, 36, "SPRFST", draw.rgb(11, 11, 13))
+    draw.circle(canvas, 400, 70, 32, draw.rgb(120, 200, 255))
+
+    let out = "/tmp/sprfst-wave.png"
+    if draw.save_png(canvas, out) {
+        io.say("saved {draw.size(canvas)} image to {out}")
+    } else {
+        io.say("could not save the image")
+    }
+}

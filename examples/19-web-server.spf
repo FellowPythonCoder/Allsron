@@ -1,0 +1,40 @@
+~~ A real HTTP server. Visit http://localhost:8080 once it is running.
+use std.io
+use std.http
+use std.json
+use std.time
+
+var visits = 0
+
+fn page(title: Text, body: Text) -> Text {
+    give "<!doctype html><html><head><meta charset=\"utf-8\"><title>" + title +
+         "</title><style>body{{background:#0b0b0d;color:#f2f2f0;font:16px ui-sans-serif,system-ui;" +
+         "margin:0;display:grid;place-items:center;height:100vh}}a{{color:#ffa136}}" +
+         ".card{{border:1px solid #1d1d20;border-radius:14px;padding:40px 56px;background:#121214}}" +
+         "h1{{color:#ffa136;margin:0 0 12px}}</style></head><body><div class=\"card\">" + body + "</div></body></html>"
+}
+
+fn handle(request: Map<Text, Any>) -> Map<Text, Any> {
+    let path = request.get("path") ?? "/"
+    visits = visits + 1
+
+    if path == "/health" {
+        give ["status": 200, "type": "application/json",
+              "body": json.write(["ok": true, "visits": visits])]
+    }
+    if path == "/time" {
+        give ["status": 200, "type": "text/plain", "body": time.format(time.now(), "%Y-%m-%d %H:%M:%S")]
+    }
+    if path == "/" {
+        give ["status": 200, "body": page("SPRFST",
+            "<h1>SPRFST</h1><p>This page is served by a program written in SPRFST.</p>" +
+            "<p>Visit number " + visits.to_text() + ".</p>" +
+            "<p><a href=\"/health\">/health</a> &middot; <a href=\"/time\">/time</a></p>")]
+    }
+    give ["status": 404, "body": page("Not found", "<h1>404</h1><p>No page at {path}</p>")]
+}
+
+fn main() {
+    io.say("starting the SPRFST web server on port 8080")
+    http.serve(8080, handle)
+}

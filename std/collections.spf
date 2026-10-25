@@ -1,0 +1,77 @@
+~~ Extra list and map helpers built on the core collection methods.
+module std.collections
+
+~~ Pair up two lists, stopping at the shorter one.
+pub fn zip(left: [Any], right: [Any]) -> [[Any]] {
+    var out: [[Any]] = []
+    var i = 0
+    let n = if left.len() < right.len() { left.len() } else { right.len() }
+    while i < n {
+        out.push([left[i], right[i]])
+        i = i + 1
+    }
+    give out
+}
+
+~~ Remove repeats, keeping the first appearance of each item.
+pub fn unique(items: [Any]) -> [Any] {
+    var out: [Any] = []
+    for item in items {
+        if not out.contains(item) { out.push(item) }
+    }
+    give out
+}
+
+~~ Split a list into chunks of at most `size` items.
+pub fn chunks(items: [Any], size: Int) -> [[Any]] {
+    var out: [[Any]] = []
+    var current: [Any] = []
+    for item in items {
+        current.push(item)
+        if current.len() >= size {
+            out.push(current)
+            current = []
+        }
+    }
+    if current.len() > 0 { out.push(current) }
+    give out
+}
+
+~~ Count how many items satisfy a test.
+pub fn tally(items: [Any], matches: fn(Any) -> Bool) -> Int {
+    var n = 0
+    for item in items {
+        if matches(item) { n = n + 1 }
+    }
+    give n
+}
+
+~~ Group items by a key worked out from each item.
+pub fn group_by(items: [Any], key_of: fn(Any) -> Text) -> Map<Text, [Any]> {
+    var out: Map<Text, [Any]> = [:]
+    for item in items {
+        let key = key_of(item)
+        var bucket: [Any] = out.get(key) ?? []
+        bucket.push(item)
+        out.set(key, bucket)
+    }
+    give out
+}
+
+~~ The smallest and largest values, as a two item list.
+pub fn span(numbers: [Num]) -> [Num] {
+    if numbers.is_empty() { give [0.0, 0.0] }
+    var low = numbers[0]
+    var high = numbers[0]
+    for n in numbers {
+        if n < low { low = n }
+        if n > high { high = n }
+    }
+    give [low, high]
+}
+
+~~ The average of a list of numbers.
+pub fn mean(numbers: [Num]) -> Num {
+    if numbers.is_empty() { give 0.0 }
+    give numbers.sum() / numbers.len()
+}

@@ -1,0 +1,34 @@
+~~ Ember, the database built into SPRFST.
+use std.io
+use std.db
+
+fn main() {
+    let store = db.open(":memory:")
+
+    db.exec(store, "create table people (id int, name text, city text, score num)")
+    db.exec(store, "insert into people values (1, 'Ada', 'London', 99.5)")
+    db.exec(store, "insert into people values (2, 'Grace', 'New York', 97.0)")
+    db.exec(store, "insert into people values (3, 'Alan', 'London', 95.5)")
+
+    io.say("tables: {db.tables(store)}")
+
+    let all = db.query(store, "select name, city from people order by name")
+    for row in all {
+        io.say("{row.get("name") ?? "?"} lives in {row.get("city") ?? "?"}")
+    }
+
+    let londoners = db.query(store, "select count(*) from people where city = 'London'")
+    io.say("londoners: {londoners.first()?.get("count") ?? 0}")
+
+    db.exec(store, "update people set score = 100.0 where name = 'Ada'")
+    let top = db.query(store, "select name, score from people where score >= 97 order by score desc")
+    io.say("top scores {top}")
+
+    db.begin(store)
+    db.exec(store, "delete from people")
+    io.say("inside the transaction: {db.query(store, "select count(*) from people").first()?.get("count") ?? 0}")
+    db.rollback(store)
+    io.say("after rollback:        {db.query(store, "select count(*) from people").first()?.get("count") ?? 0}")
+
+    db.close(store)
+}

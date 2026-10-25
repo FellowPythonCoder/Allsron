@@ -1,0 +1,19 @@
+~~ Making decisions.
+use std.io
+
+fn grade(score: Int) -> Text {
+    if score >= 90 { give "A" }
+    if score >= 80 { give "B" }
+    if score >= 70 { give "C" }
+    give "try again"
+}
+
+fn main() {
+    for score in [95, 83, 71, 40] {
+        io.say("{score} -> {grade(score)}")
+    }
+
+    let hour = 14
+    let part = if hour < 12 { "morning" } else { "afternoon" }
+    io.say("good {part}")
+}

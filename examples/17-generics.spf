@@ -1,0 +1,46 @@
+~~ Generic functions and types.
+use std.io
+
+data Pair<A, B> {
+    left: A
+    right: B
+}
+
+fn first_of<T>(items: [T]) -> T? {
+    if items.is_empty() { give nil }
+    give items[0]
+}
+
+fn biggest<T: Ord>(a: T, b: T) -> T {
+    if a > b { give a }
+    give b
+}
+
+object Stack<T> {
+    items: [T] = []
+
+    fn push_item(self, item: T) {
+        self.items.push(item)
+    }
+
+    fn pop_item(self) -> T? {
+        give self.items.pop()
+    }
+
+    fn size(self) -> Int => self.items.len()
+}
+
+fn main() {
+    let p = Pair<Text, Int> { left: "answer", right: 42 }
+    io.say("{p.left} = {p.right}")
+
+    io.say("first number {first_of([7, 8, 9]) ?? 0}")
+    io.say("first word   {first_of(["alpha", "beta"]) ?? "none"}")
+    io.say("biggest      {biggest(3, 9)} and {biggest("apple", "pear")}")
+
+    var stack = Stack<Int> { }
+    stack.push_item(1)
+    stack.push_item(2)
+    stack.push_item(3)
+    io.say("stack size {stack.size()}, popped {stack.pop_item() ?? 0}, now {stack.size()}")
+}

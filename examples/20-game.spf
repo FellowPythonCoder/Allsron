@@ -1,0 +1,59 @@
+~~ A small text game loop: state, rules and a fixed number of turns.
+use std.io
+use std.rand
+use std.math
+
+object Player {
+    name: Text = "hero"
+    health: Int = 20
+    gold: Int = 0
+
+    fn alive(self) -> Bool => self.health > 0
+    fn hurt(self, amount: Int) {
+        self.health = math.max(0, self.health - amount).to_int()
+    }
+}
+
+enum Event {
+    Treasure(Int)
+    Monster(Int)
+    Rest
+}
+
+fn roll_event() -> Event {
+    let r = rand.int(0, 100)
+    if r < 40 { give Treasure(rand.int(5, 25)) }
+    if r < 80 { give Monster(rand.int(2, 7)) }
+    give Rest
+}
+
+fn main() {
+    rand.seed(2026)
+    var hero = Player { name: "Ember" }
+    io.say("{hero.name} sets out with {hero.health} health")
+
+    for turn in 1..9 {
+        if not hero.alive() { break }
+        let what = roll_event()
+        match what {
+            when Treasure(amount) -> {
+                hero.gold = hero.gold + amount
+                io.say("turn {turn}: found {amount} gold (total {hero.gold})")
+            }
+            when Monster(bite) -> {
+                hero.hurt(bite)
+                io.say("turn {turn}: a monster bites for {bite} (health {hero.health})")
+            }
+            when Rest -> {
+                hero.health = math.min(20, hero.health + 3).to_int()
+                io.say("turn {turn}: a quiet camp (health {hero.health})")
+            }
+        }
+    }
+
+    if hero.alive() {
+        io.say("{hero.name} survived with {hero.gold} gold and {hero.health} health")
+    } else {
+        io.say("{hero.name} fell after collecting {hero.gold} gold")
+    }
+}

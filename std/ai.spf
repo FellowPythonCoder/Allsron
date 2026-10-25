@@ -1,0 +1,231 @@
+~~ A small neural network framework on top of the tensor natives.
+~~ Layers hold their own weights; the trainer runs plain gradient descent.
+module std.ai
+
+use std.tensor
+use std.math
+use std.rand
+use std.io
+
+~~ One fully connected layer: outputs = activation(inputs * weights + bias)
+pub object Dense {
+    inputs: Int = 1
+    outputs: Int = 1
+    activation: Text = "relu"
+    weights: [Num] = []
+    bias: [Num] = []
+
+    ~~ Fill the weights with small random numbers.
+    pub fn start(self) {
+        var w: [Num] = []
+        let scale = math.sqrt(2.0 / self.inputs)
+        var i = 0
+        while i < self.inputs * self.outputs {
+            w.push(rand.normal(0.0, scale))
+            i = i + 1
+        }
+        self.weights = w
+        var b: [Num] = []
+        var k = 0
+        while k < self.outputs {
+            b.push(0.0)
+            k = k + 1
+        }
+        self.bias = b
+    }
+
+    ~~ Run one example through the layer.
+    pub fn forward(self, x: [Num]) -> [Num] {
+        var out: [Num] = []
+        var o = 0
+        while o < self.outputs {
+            var total = self.bias[o]
+            var i = 0
+            while i < self.inputs {
+                total = total + x[i] * self.weights[i * self.outputs + o]
+                i = i + 1
+            }
+            out.push(apply(self.activation, total))
+            o = o + 1
+        }
+        give out
+    }
+}
+
+~~ The activation functions the layers can use.
+pub fn apply(kind: Text, x: Num) -> Num {
+    if kind == "relu" {
+        if x > 0.0 { give x }
+        give 0.0
+    }
+    if kind == "sigmoid" { give 1.0 / (1.0 + math.exp(0.0 - x)) }
+    if kind == "tanh" {
+        let e2 = math.exp(2.0 * x)
+        give (e2 - 1.0) / (e2 + 1.0)
+    }
+    give x
+}
+
+~~ The slope of an activation, given its output.
+pub fn slope(kind: Text, y: Num) -> Num {
+    if kind == "relu" {
+        if y > 0.0 { give 1.0 }
+        give 0.0
+    }
+    if kind == "sigmoid" { give y * (1.0 - y) }
+    if kind == "tanh" { give 1.0 - y * y }
+    give 1.0
+}
+
+~~ Mean squared error between a prediction and the wanted answer.
+pub fn loss(got: [Num], wanted: [Num]) -> Num {
+    var total = 0.0
+    var i = 0
+    while i < got.len() {
+        let d = got[i] - wanted[i]
+        total = total + d * d
+        i = i + 1
+    }
+    give total / got.len()
+}
+
+~~ A two layer network, trained by gradient descent.
+pub object Network {
+    hidden: Dense = Dense { }
+    output: Dense = Dense { }
+    rate: Num = 0.2
+
+    pub fn build(self, inputs: Int, middle: Int, outputs: Int) {
+        self.hidden = Dense { inputs: inputs, outputs: middle, activation: "sigmoid" }
+        self.output = Dense { inputs: middle, outputs: outputs, activation: "sigmoid" }
+        self.hidden.start()
+        self.output.start()
+    }
+
+    pub fn predict(self, x: [Num]) -> [Num] {
+        give self.output.forward(self.hidden.forward(x))
+    }
+
+    ~~ One training step over a single example.
+    pub fn learn(self, x: [Num], wanted: [Num]) -> Num {
+        let h = self.hidden.forward(x)
+        let y = self.output.forward(h)
+
+        ~~ error at the output layer
+        var out_delta: [Num] = []
+        var o = 0
+        while o < self.output.outputs {
+            let err = y[o] - wanted[o]
+            out_delta.push(err * slope(self.output.activation, y[o]))
+            o = o + 1
+        }
+
+        ~~ error carried back into the hidden layer
+        var hid_delta: [Num] = []
+        var i = 0
+        while i < self.hidden.outputs {
+            var acc = 0.0
+            var k = 0
+            while k < self.output.outputs {
+                acc = acc + out_delta[k] * self.output.weights[i * self.output.outputs + k]
+                k = k + 1
+            }
+            hid_delta.push(acc * slope(self.hidden.activation, h[i]))
+            i = i + 1
+        }
+
+        ~~ nudge the output weights
+        var ow = self.output.weights
+        var ob = self.output.bias
+        i = 0
+        while i < self.output.inputs {
+            var k = 0
+            while k < self.output.outputs {
+                let at = i * self.output.outputs + k
+                ow[at] = ow[at] - self.rate * out_delta[k] * h[i]
+                k = k + 1
+            }
+            i = i + 1
+        }
+        var k2 = 0
+        while k2 < self.output.outputs {
+            ob[k2] = ob[k2] - self.rate * out_delta[k2]
+            k2 = k2 + 1
+        }
+        self.output.weights = ow
+        self.output.bias = ob
+
+        ~~ and the hidden weights
+        var hw = self.hidden.weights
+        var hb = self.hidden.bias
+        i = 0
+        while i < self.hidden.inputs {
+            var k = 0
+            while k < self.hidden.outputs {
+                let at = i * self.hidden.outputs + k
+                hw[at] = hw[at] - self.rate * hid_delta[k] * x[i]
+                k = k + 1
+            }
+            i = i + 1
+        }
+        var k3 = 0
+        while k3 < self.hidden.outputs {
+            hb[k3] = hb[k3] - self.rate * hid_delta[k3]
+            k3 = k3 + 1
+        }
+        self.hidden.weights = hw
+        self.hidden.bias = hb
+
+        give loss(y, wanted)
+    }
+
+    ~~ Train over a whole dataset for a number of rounds.
+    pub fn train(self, inputs: [[Num]], wanted: [[Num]], rounds: Int, show: Bool) -> Num {
+        var last = 0.0
+        var round = 0
+        while round < rounds {
+            var total = 0.0
+            var i = 0
+            while i < inputs.len() {
+                total = total + self.learn(inputs[i], wanted[i])
+                i = i + 1
+            }
+            last = total / inputs.len()
+            if show and round % 200 == 0 {
+                io.say("round {round}  loss {last}")
+            }
+            round = round + 1
+        }
+        give last
+    }
+}
+
+~~ Turn text into a list of word tokens.
+pub fn tokenize(text: Text) -> [Text] {
+    var out: [Text] = []
+    var current = ""
+    for ch in text.lower().chars() {
+        let is_word = ch >= "a" and ch <= "z" or ch >= "0" and ch <= "9"
+        if is_word {
+            current = current + ch
+        } else {
+            if current.len() > 0 { out.push(current) }
+            current = ""
+        }
+    }
+    if current.len() > 0 { out.push(current) }
+    give out
+}
+
+~~ Build a word to number lookup from a body of text.
+pub fn vocabulary(words: [Text]) -> Map<Text, Int> {
+    var out: Map<Text, Int> = [:]
+    var next = 0
+    for w in words {
+        if not out.has(w) {
+            out.set(w, next)
+            next = next + 1
+        }
+    }
+    give out
+}

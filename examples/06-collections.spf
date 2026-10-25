@@ -1,0 +1,34 @@
+~~ Lists, maps and sets.
+use std.io
+
+fn main() {
+    var numbers = [5, 3, 8, 1, 9, 2]
+    io.say("start      {numbers}")
+    io.say("sorted     {numbers.sort()}")
+    io.say("reversed   {numbers.reverse()}")
+    io.say("first 3    {numbers.take(3)}")
+    io.say("evens      {numbers.filter(fn(n) => n % 2 == 0)}")
+    io.say("doubled    {numbers.map(fn(n) => n * 2)}")
+    io.say("sum        {numbers.sum()}")
+    io.say("biggest    {numbers.max() ?? 0}")
+    io.say("any big    {numbers.any(fn(n) => n > 8)}")
+    io.say("all small  {numbers.all(fn(n) => n < 100)}")
+
+    numbers.push(42)
+    io.say("after push {numbers}")
+
+    let stock = ["apples": 12, "pears": 4, "plums": 0]
+    for fruit in stock.keys() {
+        let n = stock.get(fruit) ?? 0
+        let note = if n == 0 { "sold out" } else { "{n} left" }
+        io.say("{fruit.pad_right(8)} {note}")
+    }
+
+    var seen = set([1, 2, 3])
+    seen.add(2)
+    seen.add(7)
+    io.say("set has {seen.len()} items, contains 7: {seen.has(7)}")
+
+    let matrix = [[1, 2], [3, 4], [5, 6]]
+    io.say("flattened {matrix.flatten()}")
+}

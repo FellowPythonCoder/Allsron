@@ -1,0 +1,51 @@
+~~ Tensors and a tiny neural network trained by hand.
+use std.io
+use std.tensor
+use std.math
+use std.rand
+
+fn main() {
+    let a = tensor.make([2, 3], [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    let b = tensor.make([3, 2], [7.0, 8.0, 9.0, 10.0, 11.0, 12.0])
+    io.say("a shape {tensor.shape(a)}")
+    io.say("a + a   {tensor.to_list(tensor.add(a, a))}")
+    io.say("a * 2   {tensor.to_list(tensor.scale(a, 2.0))}")
+    io.say("a @ b   {tensor.to_list(tensor.matmul(a, b))}")
+    io.say("a^T     {tensor.to_list(tensor.transpose(a))}")
+    io.say("relu    {tensor.to_list(tensor.relu(tensor.make([4], [-1.0, 0.5, -2.0, 3.0])))}")
+    io.say("softmax {tensor.to_list(tensor.softmax(tensor.make([3], [1.0, 2.0, 3.0])))}")
+    io.say("mean    {tensor.mean(a)}")
+
+    ~~ learn the AND function with one neuron and gradient descent
+    rand.seed(7)
+    var w1 = 0.1
+    var w2 = -0.2
+    var bias = 0.0
+    let inputs = [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]]
+    let wanted = [0.0, 0.0, 0.0, 1.0]
+    let rate = 0.5
+
+    for _epoch in 1..400 {
+        for i in range(0, 4) {
+            let x1 = inputs[i][0]
+            let x2 = inputs[i][1]
+            let target = wanted[i]
+            let z = w1 * x1 + w2 * x2 + bias
+            let out = 1.0 / (1.0 + math.exp(0.0 - z))
+            let error = out - target
+            let grad = error * out * (1.0 - out)
+            w1 = w1 - rate * grad * x1
+            w2 = w2 - rate * grad * x2
+            bias = bias - rate * grad
+        }
+    }
+
+    io.say("learned weights {w1} {w2} bias {bias}")
+    for i in range(0, 4) {
+        let x1 = inputs[i][0]
+        let x2 = inputs[i][1]
+        let z = w1 * x1 + w2 * x2 + bias
+        let out = 1.0 / (1.0 + math.exp(0.0 - z))
+        io.say("{x1} AND {x2} -> {math.round(out)}  (raw {out})")
+    }
+}

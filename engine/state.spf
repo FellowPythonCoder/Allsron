@@ -1,0 +1,205 @@
+~~ =====================================================================
+~~  Sreon — app
+~~
+~~  The shared state of the running browser, and the shape of an answer.
+~~  The window owns the real tabs and web views; the engine keeps a
+~~  light copy of them so it can draw the sidebar, the bar and the
+~~  panel, and decides what every click should do.
+~~ =====================================================================
+module state
+
+use std.json
+use std.time
+use kit
+use store
+use settings
+use shield
+
+pub object Tab {
+    id: Int = 0
+    title: Text = ""
+    url: Text = ""
+    loading: Bool = false
+    pinned: Bool = false
+    sleeping: Bool = false
+    ws: Text = "Personal"
+    back: Bool = false
+    forward: Bool = false
+    secure: Bool = false
+    progress: Num = 0.0
+    private: Bool = false
+    stripped: Int = 0
+}
+
+pub object Item {
+    kind: Text = ""        ~~ answer, tab, bookmark, history, command, search, url, tool, keyword
+    icon: Text = ""
+    title: Text = ""
+    sub: Text = ""
+    hint: Text = ""
+    act: Text = ""
+    arg: Text = ""
+    hue: Int = -1
+}
+
+pub object App {
+    s: Map<Text, Any> = [:]
+    keys: Map<Text, Any> = [:]
+    book: shield.Book = shield.Book { }
+    tabs: [Tab] = []
+    active: Int = 0
+    ws: Text = "Personal"
+    workspaces: [Text] = ["Personal", "Work"]
+    history: [Any] = []
+    bookmarks: [Any] = []
+    notes: Map<Text, Any> = [:]
+    closed: [Text] = []
+    zoom: Map<Text, Any> = [:]
+    ~~ the bar
+    pal_q: Text = ""
+    pal_sel: Int = 0
+    pal_items: [Item] = []
+    pal_mode: Text = "all"
+    ~~ the panel
+    panel_open: Bool = false
+    panel_tab: Text = "shield"
+    brief_html: Text = ""
+    brief_for: Text = ""
+    ~~ focus and timer
+    focus_on: Bool = false
+    timer_end: Int = 0
+    timer_kind: Text = ""
+    ~~ counts that are really counted
+    upgrades: Int = 0
+    cleaned: Int = 0
+    popups: Int = 0
+    sleeps: Int = 0
+    ~~ the window
+    width: Int = 1200
+    home: Text = ""
+    res: Text = ""
+    sprfst: Text = ""
+    rules_version: Int = 0
+    downloads: [Any] = []
+    readers: Map<Text, Any> = [:]
+    reader_seq: Int = 0
+    system_dark: Bool = true
+    studio: Map<Text, Any> = [:]
+}
+
+~~ ---------------------------------------------------------- an answer
+pub object Reply {
+    regions: Map<Text, Any> = [:]
+    host: [Any] = []
+    toast: Text = ""
+    values: Map<Text, Any> = [:]
+    attrs: Map<Text, Any> = [:]
+    classes: Map<Text, Any> = [:]
+    focus: Text = ""
+    select: Bool = false
+    scroll: Text = ""
+    theme: Text = ""
+    reload: Bool = false
+    target: Text = ""
+    menu: [Any] = []
+
+    fn region(self, name: Text, html: Text) { self.regions.set(name, html) }
+    fn do(self, action: Map<Text, Any>) { self.host.push(action) }
+    fn go(self, what: Text) { self.host.push(["do": what]) }
+
+    fn to_map(self) -> Map<Text, Any> {
+        var m: Map<Text, Any> = [:]
+        if self.regions.len() > 0 { m.set("regions", self.regions) }
+        if self.host.len() > 0 { m.set("host", self.host) }
+        if self.toast != "" { m.set("toast", self.toast) }
+        if self.values.len() > 0 { m.set("values", self.values) }
+        if self.attrs.len() > 0 { m.set("attrs", self.attrs) }
+        if self.classes.len() > 0 { m.set("classes", self.classes) }
+        if self.focus != "" { m.set("focus", self.focus) }
+        if self.select { m.set("select", true) }
+        if self.scroll != "" { m.set("scroll", self.scroll) }
+        if self.theme != "" { m.set("theme", self.theme) }
+        if self.reload { m.set("reload", true) }
+        if self.target != "" { m.set("target", self.target) }
+        if self.menu.len() > 0 { m.set("menu", self.menu) }
+        give m
+    }
+}
+
+pub fn host_open(url: Text, target: Text) -> Map<Text, Any> {
+    give ["do": "open", "url": url, "where": target]
+}
+
+pub fn tab_by_id(a: App, id: Int) -> Tab {
+    for t in a.tabs { if t.id == id { give t } }
+    give Tab { }
+}
+
+pub fn current(a: App) -> Tab => tab_by_id(a, a.active)
+
+pub fn ws_tabs(a: App) -> [Tab] {
+    var out: [Tab] = []
+    for t in a.tabs {
+        if t.ws == a.ws or not settings.flag(a.s, "workspaces") { out.push(t) }
+    }
+    give out
+}
+
+~~ ------------------------------------------------------------ loading
+pub fn boot(res: Text) -> App {
+    store.ensure()
+    var a = App { }
+    a.res = res
+    a.s = settings.load()
+    a.keys = settings.shortcuts()
+    a.book = shield.load()
+    a.history = store.read_list("history")
+    a.bookmarks = store.read_list("bookmarks")
+    a.notes = store.read_map("notes")
+    a.zoom = store.read_map("zoom")
+    let ws = store.read_list("workspaces")
+    if ws.len() > 0 {
+        var names: [Text] = []
+        for w in ws { names.push(to_text(w)) }
+        a.workspaces = names
+    }
+    a.ws = a.workspaces[0]
+    a.home = settings.str(a.s, "home")
+    give a
+}
+
+pub fn save_settings(a: App) { settings.save(a.s) }
+
+pub fn save_history(a: App) {
+    var keep = a.history
+    if keep.len() > 6000 { keep = keep.slice(keep.len() - 5000, keep.len()) }
+    a.history = keep
+    store.write("history", keep)
+}
+
+pub fn save_bookmarks(a: App) { store.write("bookmarks", a.bookmarks) }
+pub fn save_notes(a: App) { store.write("notes", a.notes) }
+
+pub fn is_bookmarked(a: App, url: Text) -> Bool {
+    for b in a.bookmarks {
+        let m: Map<Text, Any> = b
+        if kit.gt(m, "u") == url { give true }
+    }
+    give false
+}
+
+~~ Page titles in Sreon's own name: a search page says "Sreon", never the engine.
+pub fn brand_title(title: Text, url: Text) -> Text {
+    var t = title
+    for tail in [" at DuckDuckGo", " - DuckDuckGo", " – DuckDuckGo", " - Brave Search", " - Search", " - Bing", " - Yahoo Search",
+                 " - Startpage Search", " - Ecosia", " | Startpage", " - Qwant", " - Mojeek", " - Kagi Search", " - Google Search"] {
+        if t.ends_with(tail) { t = t.slice(0, t.len() - tail.len()) + " — Sreon" }
+    }
+    if t == "" {
+        let h = kit.site_of(url)
+        if url.starts_with("sreon://") { give "Sreon" }
+        if h != "" { give h }
+        give "New tab"
+    }
+    give t
+}

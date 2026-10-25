@@ -1,0 +1,38 @@
+~~ Enums and pattern matching.
+use std.io
+
+enum Command {
+    Move(Int, Int)
+    Write(Text)
+    Colour(Int, Int, Int)
+    Stop
+}
+
+fn run(cmd: Command) -> Text {
+    give match cmd {
+        when Move(x, y) -> "move to {x},{y}"
+        when Write(words) -> "write '{words}'"
+        when Colour(r, g, b) if r > 200 -> "a very red colour"
+        when Colour(r, g, b) -> "colour {r}/{g}/{b}"
+        when Stop -> "stop"
+    }
+}
+
+fn classify(n: Int) -> Text {
+    give match n {
+        when 0 -> "zero"
+        when 1 -> "one"
+        when 2 -> "two"
+        else -> if n < 0 { "negative" } else { "many" }
+    }
+}
+
+fn main() {
+    let program = [Move(3, 4), Write("hello"), Colour(255, 0, 0), Colour(10, 20, 30), Stop]
+    for cmd in program {
+        io.say(run(cmd))
+    }
+    for n in [-5, 0, 1, 2, 99] {
+        io.say("{n} is {classify(n)}")
+    }
+}

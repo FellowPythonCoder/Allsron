@@ -1,0 +1,41 @@
+~~ Objects, fields, methods and composition.
+use std.io
+
+object Engine {
+    power: Int = 120
+
+    fn describe(self) -> Text => "{self.power} horsepower"
+}
+
+object Car {
+    make: Text = "unknown"
+    engine: Engine = Engine { }
+    miles: Num = 0.0
+
+    fn drive(self, distance: Num) {
+        self.miles = self.miles + distance
+    }
+
+    fn report(self) -> Text {
+        give "{self.make}: {self.engine.describe()}, {self.miles} miles"
+    }
+}
+
+object SportsCar extends Car {
+    fn report(self) -> Text {
+        give "⚡ " + "{self.make} is quick: {self.engine.describe()}"
+    }
+}
+
+fn main() {
+    var car = Car { make: "Saloon", engine: Engine { power: 90 } }
+    car.drive(12.5)
+    car.drive(30.0)
+    io.say(car.report())
+
+    var fast = SportsCar { make: "Bolt", engine: Engine { power: 420 } }
+    io.say(fast.report())
+
+    let fleet = [car, fast]
+    io.say("the fleet has {fleet.len()} cars")
+}

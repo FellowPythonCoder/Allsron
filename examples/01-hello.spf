@@ -1,0 +1,6 @@
+~~ The smallest SPRFST program there is.
+use std.io
+
+fn main() {
+    io.say("hello, world")
+}

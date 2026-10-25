@@ -1,0 +1,56 @@
+~~ Assertions for tests. Every helper fails the test with a clear message.
+module std.testing
+
+use std.io
+
+~~ Fail unless the two values are the same.
+pub fn same(got: Any, wanted: Any, what: Text) {
+    if got != wanted {
+        fail "{what}: expected {wanted}, got {got}"
+    }
+}
+
+~~ Fail unless the two values differ.
+pub fn different(got: Any, unwanted: Any, what: Text) {
+    if got == unwanted {
+        fail "{what}: did not expect {unwanted}"
+    }
+}
+
+~~ Fail unless the condition holds.
+pub fn yes(condition: Bool, what: Text) {
+    if not condition { fail "{what}: expected true" }
+}
+
+~~ Fail unless the condition does not hold.
+pub fn no(condition: Bool, what: Text) {
+    if condition { fail "{what}: expected false" }
+}
+
+~~ Fail unless two numbers are within a tolerance of each other.
+pub fn close(got: Num, wanted: Num, tolerance: Num, what: Text) {
+    var diff = got - wanted
+    if diff < 0.0 { diff = 0.0 - diff }
+    if diff > tolerance {
+        fail "{what}: {got} is not within {tolerance} of {wanted}"
+    }
+}
+
+~~ Fail unless the list contains the item.
+pub fn holds(items: [Any], item: Any, what: Text) {
+    if not items.contains(item) {
+        fail "{what}: {items} does not contain {item}"
+    }
+}
+
+~~ Fail unless the result carries an error.
+pub fn failed(outcome: Result<Any>, what: Text) {
+    match outcome {
+        when Ok(value) -> {
+            fail "{what}: expected a failure, got {value}"
+        }
+        when Err(why) -> {
+            io.print("")
+        }
+    }
+}

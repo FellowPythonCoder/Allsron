@@ -1,0 +1,464 @@
+~~ =====================================================================
+~~  Sreon — omnibox
+~~
+~~  What a typed line means, what to suggest while it is being typed, and
+~~  how links are cleaned. Everything here is local: suggestions come
+~~  from your own tabs, bookmarks and history, so the bar answers before
+~~  a network could.
+~~ =====================================================================
+module omnibox
+
+use std.http
+use std.time
+use kit
+use settings
+use state
+use units
+use calc
+
+pub fn engine_template(s: Map<Text, Any>) -> Text {
+    let e = settings.str(s, "engine")
+    if e == "brave" { give "https://search.brave.com/search?q=%s" }
+    if e == "startpage" { give "https://www.startpage.com/do/search?q=%s" }
+    if e == "ecosia" { give "https://www.ecosia.org/search?q=%s" }
+    if e == "qwant" { give "https://www.qwant.com/?q=%s" }
+    if e == "mojeek" { give "https://www.mojeek.com/search?q=%s" }
+    if e == "bing" { give "https://www.bing.com/search?q=%s" }
+    if e == "yahoo" { give "https://search.yahoo.com/search?p=%s" }
+    if e == "kagi" { give "https://kagi.com/search?q=%s" }
+    if e == "custom" {
+        let c = settings.str(s, "engine_custom")
+        if c.contains("%s") { give c }
+    }
+    give "https://duckduckgo.com/?q=%s"
+}
+
+~~ Developer search: one engine of your choice for code questions.
+pub fn dev_template(s: Map<Text, Any>) -> Text {
+    let e = settings.str(s, "dev_engine")
+    if e == "github" { give "https://github.com/search?q=%s&type=code" }
+    if e == "mdn" { give "https://developer.mozilla.org/en-US/search?q=%s" }
+    if e == "devdocs" { give "https://devdocs.io/#q=%s" }
+    if e == "sourcegraph" { give "https://sourcegraph.com/search?q=%s" }
+    if e == "grep" { give "https://grep.app/search?q=%s" }
+    if e == "custom" {
+        let c = settings.str(s, "dev_engine_custom")
+        if c.contains("%s") { give c }
+    }
+    give "https://stackoverflow.com/search?q=%s"
+}
+
+~~ Built-in developer shortcuts: "gh rust async", "!npm lodash".
+pub fn dev_bang(key: Text) -> Text {
+    if key == "gh" { give "https://github.com/search?q=%s" }
+    if key == "so" { give "https://stackoverflow.com/search?q=%s" }
+    if key == "mdn" { give "https://developer.mozilla.org/en-US/search?q=%s" }
+    if key == "npm" { give "https://www.npmjs.com/search?q=%s" }
+    if key == "crates" { give "https://crates.io/search?q=%s" }
+    if key == "pypi" { give "https://pypi.org/search/?q=%s" }
+    if key == "docsrs" { give "https://docs.rs/releases/search?query=%s" }
+    if key == "devdocs" { give "https://devdocs.io/#q=%s" }
+    if key == "mvn" { give "https://central.sonatype.com/search?q=%s" }
+    if key == "go" { give "https://pkg.go.dev/search?q=%s" }
+    if key == "hn" { give "https://hn.algolia.com/?q=%s" }
+    if key == "caniuse" { give "https://caniuse.com/?search=%s" }
+    if key == "bundle" { give "https://bundlephobia.com/package/%s" }
+    if key == "rfc" { give "https://datatracker.ietf.org/doc/search?name=%s" }
+    give ""
+}
+
+pub fn search_url(s: Map<Text, Any>, q: Text) -> Text {
+    give engine_template(s).replace("%s", http.url_encode(q))
+}
+
+pub object Verdict {
+    kind: Text = "search"       ~~ url, search, internal, keyword
+    url: Text = ""
+    label: Text = ""
+}
+
+fn is_ip(h: Text) -> Bool {
+    let parts = h.split(".")
+    if parts.len() != 4 { give false }
+    for p in parts {
+        let n = p.to_int()
+        if n == nil { give false }
+        let v = n ?? 0
+        if v < 0 or v > 255 { give false }
+    }
+    give true
+}
+
+~~ A host name: letters, digits, dots and dashes, ending in a plausible domain.
+fn is_host(h: Text) -> Bool {
+    if h == "localhost" or is_ip(h) { give true }
+    if not h.contains(".") { give false }
+    if h.starts_with(".") or h.ends_with(".") { give false }
+    let parts = h.split(".")
+    let tld = parts[parts.len() - 1]
+    if tld.len() < 2 or tld.len() > 24 { give false }
+    for c in h.chars() {
+        let ok = (c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or (c >= "0" and c <= "9") or c == "-" or c == "." or c == "_" or c >= "\u{80}"
+        if not ok { give false }
+    }
+    for c in tld.chars() { if c >= "0" and c <= "9" { give false } }
+    give true
+}
+
+pub fn classify(a: state.App, input: Text) -> Verdict {
+    let t = input.trim()
+    if t == "" { give Verdict { kind: "internal", url: "sreon://newtab" } }
+    if t.starts_with("sreon://") or t.starts_with("about:") {
+        if t == "about:blank" { give Verdict { kind: "url", url: "about:blank" } }
+        if t.starts_with("about:") { give Verdict { kind: "internal", url: "sreon://" + t.slice(6, t.len()) } }
+        give Verdict { kind: "internal", url: t }
+    }
+    let low = t.lower()
+    if low.starts_with("http://") or low.starts_with("https://") or low.starts_with("file://") or low.starts_with("data:") {
+        if not t.contains(" ") { give Verdict { kind: "url", url: t } }
+    }
+    ~~ keyword shortcuts: "yt cats"
+    let sp = t.index_of(" ")
+    if sp > 0 {
+        let key = t.slice(0, sp).lower()
+        let rest = t.slice(sp + 1, t.len()).trim()
+        for line in settings.str(a.s, "keywords").lines() {
+            let eq = line.index_of("=")
+            if eq > 0 and line.slice(0, eq).trim().lower() == key and rest != "" {
+                let tpl = line.slice(eq + 1, line.len()).trim()
+                give Verdict { kind: "keyword", url: tpl.replace("%s", http.url_encode(rest)), label: key }
+            }
+        }
+    }
+    if sp > 0 and settings.flag(a.s, "dev_bangs") {
+        var key = t.slice(0, sp).lower()
+        let rest = t.slice(sp + 1, t.len()).trim()
+        if key.starts_with("!") { key = key.slice(1, key.len()) }
+        let pre = settings.str(a.s, "dev_prefix").trim().lower()
+        if rest != "" {
+            let tpl = dev_bang(key)
+            if tpl != "" { give Verdict { kind: "keyword", url: tpl.replace("%s", http.url_encode(rest)), label: key } }
+            if pre != "" and key == pre { give Verdict { kind: "keyword", url: dev_template(a.s).replace("%s", http.url_encode(rest)), label: key } }
+        }
+    }
+    if not t.contains(" ") {
+        var host = t
+        var tail = ""
+        let cut = t.index_of("/")
+        if cut >= 0 { host = t.slice(0, cut); tail = t.slice(cut, t.len()) }
+        var port = ""
+        let colon = host.index_of(":")
+        if colon >= 0 { port = host.slice(colon, host.len()); host = host.slice(0, colon) }
+        let q = host.index_of("?")
+        if q >= 0 { tail = host.slice(q, host.len()) + tail; host = host.slice(0, q) }
+        if is_host(host) {
+            let local = host == "localhost" or is_ip(host) or host.ends_with(".local")
+            var scheme = "https://"
+            if local { scheme = "http://" }
+            give Verdict { kind: "url", url: scheme + host + port + tail }
+        }
+    }
+    give Verdict { kind: "search", url: search_url(a.s, t), label: t }
+}
+
+~~ ------------------------------------------------------ cleaning links
+fn tracking(name: Text) -> Bool {
+    let n = name.lower()
+    if n.starts_with("utm_") or n.starts_with("mtm_") or n.starts_with("pk_") or n.starts_with("hsa_") or n.starts_with("ga_") { give true }
+    for x in ["fbclid", "gclid", "gclsrc", "dclid", "msclkid", "yclid", "twclid", "ttclid", "li_fat_id", "igshid", "igsh", "mc_cid", "mc_eid",
+              "_hsenc", "_hsmi", "mkt_tok", "wickedid", "oly_enc_id", "oly_anon_id", "vero_id", "__s", "_openstat", "s_cid", "cmpid",
+              "ncid", "_ga", "_gl", "trk", "trkcampaign", "trkinfo", "spm", "scid", "ref_src", "ref_url", "rb_clickid", "sr_share",
+              "si", "feature", "pp", "soc_src", "soc_trk", "mbid", "elqtrackid", "elq", "elqaid", "elqat", "cid_", "sc_cid", "campaignid", "adgroupid", "ei_"] {
+        if n == x { give true }
+    }
+    give false
+}
+
+pub fn clean_url(url: Text) -> Text {
+    let q = url.index_of("?")
+    if q < 0 { give url }
+    var frag = ""
+    var body = url
+    let h = body.index_of("#")
+    if h >= 0 { frag = body.slice(h, body.len()); body = body.slice(0, h) }
+    let base = body.slice(0, q)
+    let query = body.slice(q + 1, body.len())
+    var keep: [Text] = []
+    for pair in query.split("&") {
+        if pair == "" { skip }
+        let eq = pair.index_of("=")
+        let name = if eq >= 0 { pair.slice(0, eq) } else { pair }
+        ~~ "feature" and "si" only matter on video sites; keep them elsewhere
+        var dropped = tracking(name)
+        if dropped and (name.lower() == "si" or name.lower() == "feature" or name.lower() == "pp") {
+            dropped = url.contains("youtube.com") or url.contains("youtu.be") or url.contains("spotify.com")
+        }
+        if not dropped { keep.push(pair) }
+    }
+    if keep.len() == 0 { give base + frag }
+    give base + "?" + keep.join("&") + frag
+}
+
+pub fn pretty_host(url: Text) -> Text {
+    if url.starts_with("sreon://") { give "Sreon · " + url.slice(8, url.len()) }
+    let h = kit.site_of(url)
+    if h == "" { give url }
+    give h
+}
+
+~~ ----------------------------------------------------------- commands
+pub object Cmd {
+    id: Text = ""
+    title: Text = ""
+    words: Text = ""
+    icon: Text = ""
+    key: Text = ""
+}
+
+fn c(id: Text, title: Text, words: Text, icon: Text, key: Text) -> Cmd {
+    give Cmd { id: id, title: title, words: words, icon: icon, key: key }
+}
+
+pub fn commands() -> [Cmd] {
+    give [
+        c("new_tab", "New tab", "open blank page", "plus", "new_tab"),
+        c("close_tab", "Close tab", "quit page remove", "close", "close_tab"),
+        c("reopen_tab", "Reopen closed tab", "undo restore", "undo", "reopen_tab"),
+        c("duplicate_tab", "Duplicate tab", "copy clone", "copy", ""),
+        c("pin_tab", "Pin or unpin tab", "keep favourite", "pin", "pin_tab"),
+        c("sleep_tab", "Put this tab to sleep", "memory free suspend", "sleep", "sleep_tab"),
+        c("sleep_others", "Sleep all other tabs", "memory free suspend", "sleep", ""),
+        c("close_others", "Close other tabs", "clean up", "close", ""),
+        c("reload", "Reload page", "refresh", "reload", "reload"),
+        c("back", "Go back", "previous", "back", "back"),
+        c("forward", "Go forward", "next", "forward", "forward"),
+        c("home", "Go to home page", "start", "home", ""),
+        c("toggle_sidebar", "Show or hide the sidebar", "tabs", "sidebar", "toggle_sidebar"),
+        c("toggle_panel", "Show or hide the right panel", "side", "panel", "toggle_panel"),
+        c("panel_shield", "Shield panel", "ads trackers blocked privacy", "shield", ""),
+        c("panel_brief", "Brief this page", "summary summarise tldr key points", "spark", "brief"),
+        c("panel_notes", "Notes for this site", "write remember", "note", ""),
+        c("panel_tools", "Quick tools", "calculator convert", "tools", ""),
+        c("panel_focus", "Focus and timer panel", "pomodoro concentrate", "focus", ""),
+        c("reader", "Reader view", "clean article read lens", "reader", "reader"),
+        c("focus", "Toggle focus mode", "distraction block pomodoro", "focus", "focus"),
+        c("timer_25", "Start a 25 minute focus timer", "pomodoro work", "timer", ""),
+        c("timer_5", "Start a 5 minute break", "pomodoro rest", "timer", ""),
+        c("timer_stop", "Stop the timer", "cancel", "timer", ""),
+        c("find", "Find in page", "search text", "search", "find"),
+        c("zoom_in", "Zoom in", "bigger larger", "zoom", "zoom_in"),
+        c("zoom_out", "Zoom out", "smaller", "zoom", "zoom_out"),
+        c("zoom_reset", "Actual size", "reset zoom", "zoom", "zoom_reset"),
+        c("split", "Split view with another tab", "side by side", "split", "split"),
+        c("screenshot", "Screenshot of this page", "capture image png", "camera", "screenshot"),
+        c("save_pdf", "Save page as PDF", "export", "file", ""),
+        c("print", "Print", "paper", "file", ""),
+        c("copy_link", "Copy clean link", "share url tracking", "copy", "copy_link"),
+        c("copy_markdown", "Copy link as Markdown", "share url", "copy", ""),
+        c("bookmark", "Bookmark this page", "star save favourite", "star", ""),
+        c("shield_site", "Turn Shield off or on for this site", "ads allow", "shield", ""),
+        c("dark_pages", "Toggle dark mode for websites", "night invert", "moon", ""),
+        c("settings", "Settings", "preferences options customise", "gear", "settings"),
+        c("history", "History", "visited", "history", ""),
+        c("bookmarks", "Bookmarks", "saved starred", "bookmark", ""),
+        c("downloads", "Downloads", "files", "download", ""),
+        c("shield_page", "Shield report", "blocked privacy", "shield", ""),
+        c("studio", "Open Studio", "code ide compiler programming", "code", "studio"),
+        c("guide", "SPRFST guidebook", "learn language manual docs", "book", ""),
+        c("whiteboard", "Open whiteboard", "draw sketch diagram", "board", "whiteboard"),
+        c("tools", "All tools", "utilities calculator json colour", "tools", ""),
+        c("about", "About Sreon", "version", "spark", ""),
+        c("new_window", "New window", "", "plus", "new_window"),
+        c("private", "New private window", "incognito", "eye-off", "private"),
+        c("clear_data", "Clear browsing data", "cache cookies delete history", "trash", ""),
+        c("theme_midnight", "Theme: Midnight", "dark colour", "palette", ""),
+        c("theme_graphite", "Theme: Graphite", "dark colour grey", "palette", ""),
+        c("theme_abyss", "Theme: Abyss", "dark colour blue", "palette", ""),
+        c("theme_forest", "Theme: Forest", "dark colour green", "palette", ""),
+        c("theme_rose", "Theme: Rose", "dark colour pink", "palette", ""),
+        c("theme_dusk", "Theme: Dusk", "dark colour purple", "palette", ""),
+        c("theme_paper", "Theme: Paper (light)", "light colour white", "sun", ""),
+        c("fullscreen", "Toggle full screen", "", "panel", "")
+    ]
+}
+
+~~ ------------------------------------------------------- suggestions
+fn contains_all(hay: Text, words: [Text]) -> Bool {
+    let h = hay.lower()
+    for w in words { if not h.contains(w) { give false } }
+    give true
+}
+
+fn score_of(title: Text, url: Text, words: [Text]) -> Int {
+    let t = title.lower()
+    let u = url.lower()
+    var score = 0
+    for w in words {
+        if t.starts_with(w) { score = score + 40 }
+        else if t.contains(" " + w) { score = score + 25 }
+        else if t.contains(w) { score = score + 12 }
+        if kit.site_of(url).starts_with(w) { score = score + 35 }
+        else if u.contains(w) { score = score + 8 }
+    }
+    give score
+}
+
+object Scored {
+    score: Int = 0
+    item: state.Item = state.Item { }
+}
+
+fn top(list: [Scored], n: Int) -> [state.Item] {
+    let sorted = list.sort_by(fn(x, y) => x.score > y.score)
+    var out: [state.Item] = []
+    var i = 0
+    while i < sorted.len() and i < n { out.push(sorted[i].item); i = i + 1 }
+    give out
+}
+
+pub fn suggest(a: state.App, input: Text) -> [state.Item] {
+    var out: [state.Item] = []
+    var q = input.trim()
+    var mode = "all"
+    if q.starts_with(">") { mode = "commands"; q = q.slice(1, q.len()).trim() }
+    else if q.starts_with("@") { mode = "tabs"; q = q.slice(1, q.len()).trim() }
+    else if q.starts_with("#") { mode = "bookmarks"; q = q.slice(1, q.len()).trim() }
+    else if q.starts_with("/") and q.len() > 1 and not q.slice(1, q.len()).contains("/") and false { mode = "history" }
+    let words = kit.words_of(q.lower())
+    let tools_on = settings.flag(a.s, "suggest_tools")
+
+    if mode == "all" and q != "" and tools_on {
+        let r = units.answer(q)
+        if r.ok {
+            out.push(state.Item { kind: "answer", icon: "calc", title: r.text, sub: if r.note != "" { r.note + " · press Enter to copy" } else { "Answer · press Enter to copy" }, act: "copy", arg: r.text })
+        }
+    }
+    if mode == "all" and q != "" {
+        let v = classify(a, q)
+        if v.kind == "url" {
+            out.push(state.Item { kind: "url", icon: "globe", title: "Go to " + pretty_host(v.url), sub: v.url, act: "open", arg: v.url, hint: "Open" })
+        } else if v.kind == "keyword" {
+            out.push(state.Item { kind: "keyword", icon: "search", title: "Search " + v.label + " for “" + q.slice(q.index_of(" ") + 1, q.len()) + "”", sub: pretty_host(v.url), act: "open", arg: v.url, hint: v.label })
+        } else if v.kind == "internal" {
+            out.push(state.Item { kind: "url", icon: "spark", title: "Open " + v.url, sub: "Sreon page", act: "open", arg: v.url })
+        } else {
+            out.push(state.Item { kind: "search", icon: "search", title: "Search with Sreon for “" + q + "”", sub: "Private search · " + settings.str(a.s, "engine") + " results", act: "open", arg: v.url, hint: "Search" })
+        }
+    }
+
+    if mode == "all" or mode == "tabs" {
+        var found: [Scored] = []
+        for t in a.tabs {
+            if q == "" or contains_all(t.title + " " + t.url, words) {
+                var bonus = 5
+                if t.id == a.active { bonus = 0 }
+                var note = "Switch to tab"
+                if t.sleeping { note = "Sleeping" }
+                var it = state.Item { kind: "tab", icon: "", title: state.brand_title(t.title, t.url), sub: pretty_host(t.url), act: "tab.select", arg: t.id.to_text(), hint: note, hue: kit.hue_of(kit.site_of(t.url)) }
+                found.push(Scored { score: score_of(t.title, t.url, words) + bonus, item: it })
+            }
+        }
+        var lim_t = 4
+        if mode == "tabs" { lim_t = 12 }
+        for it in top(found, lim_t) { out.push(it) }
+    }
+
+    if mode == "all" or mode == "bookmarks" {
+        var found: [Scored] = []
+        for b in a.bookmarks {
+            let m: Map<Text, Any> = b
+            let title = kit.gt(m, "t")
+            let url = kit.gt(m, "u")
+            if q == "" or contains_all(title + " " + url, words) {
+                found.push(Scored { score: score_of(title, url, words) + 10, item: state.Item { kind: "bookmark", icon: "star", title: title, sub: pretty_host(url), act: "open", arg: url, hint: "Bookmark", hue: kit.hue_of(kit.site_of(url)) } })
+            }
+        }
+        var lim_b = 3
+        if mode == "bookmarks" { lim_b = 12 }
+        for it in top(found, lim_b) { out.push(it) }
+    }
+
+    if (mode == "all" and q != "" and settings.flag(a.s, "suggest")) {
+        var found: [Scored] = []
+        var seen: Map<Text, Any> = [:]
+        var i = a.history.len() - 1
+        var looked = 0
+        while i >= 0 and looked < 2500 {
+            let m: Map<Text, Any> = a.history[i]
+            let url = kit.gt(m, "u")
+            let title = kit.gt(m, "t")
+            looked = looked + 1
+            i = i - 1
+            if seen.has(url) { skip }
+            if contains_all(title + " " + url, words) {
+                seen.set(url, 1)
+                let visits = kit.gi(m, "n", 1)
+                found.push(Scored { score: score_of(title, url, words) + (if visits > 20 { 20 } else { visits }) + (if looked < 50 { 8 } else { 0 }), item: state.Item {
+                    kind: "history", icon: "history", title: state.brand_title(title, url), sub: pretty_host(url), act: "open", arg: url, hint: kit.ago(kit.gn(m, "at", 0.0)), hue: kit.hue_of(kit.site_of(url)) } })
+            }
+        }
+        for it in top(found, 4) { out.push(it) }
+    }
+
+    if mode == "all" or mode == "commands" {
+        var found: [Scored] = []
+        for cm in commands() {
+            var s = 0
+            if q == "" { s = 1 }
+            else if contains_all(cm.title + " " + cm.words, words) { s = score_of(cm.title, "", words) + 4 }
+            if s > 0 {
+                var hint = ""
+                if cm.key != "" { hint = to_text(a.keys.get(cm.key) ?? "") }
+                found.push(Scored { score: s, item: state.Item { kind: "command", icon: cm.icon, title: cm.title, sub: "", act: "cmd", arg: cm.id, hint: pretty_key(hint) } })
+            }
+        }
+        var limit = 4
+        if mode == "commands" { limit = 14 }
+        if q == "" and mode == "all" { limit = 6 }
+        for it in top(found, limit) { out.push(it) }
+    }
+    give out
+}
+
+~~ cmd+shift+t  ->  ⇧⌘T
+pub fn pretty_key(k: Text) -> Text {
+    if k == "" { give "" }
+    var out = ""
+    var key = ""
+    for part in k.split("+") {
+        let p = part.trim().lower()
+        if p == "ctrl" { out = out + "⌃" }
+        else if p == "alt" or p == "opt" or p == "option" { out = out + "⌥" }
+        else if p == "shift" { out = out + "⇧" }
+        else if p == "cmd" or p == "command" { out = out + "⌘" }
+        else if p == "tab" { key = "⇥" }
+        else if p == "enter" or p == "return" { key = "↩" }
+        else if p == "esc" { key = "⎋" }
+        else { key = p.upper() }
+    }
+    give out + key
+}
+
+~~ ---------------------------------------------------------- history
+pub fn record_visit(a: state.App, url: Text, title: Text) {
+    if not settings.flag(a.s, "history") { give }
+    if url.starts_with("sreon://") or url.starts_with("about:") or not (url.starts_with("http://") or url.starts_with("https://")) { give }
+    let now = time.now()
+    var i = a.history.len() - 1
+    var scanned = 0
+    while i >= 0 and scanned < 400 {
+        let m: Map<Text, Any> = a.history[i]
+        if kit.gt(m, "u") == url {
+            var n = kit.gi(m, "n", 1)
+            m.set("n", n + 1)
+            if title != "" { m.set("t", title) }
+            m.set("at", now)
+            a.history[i] = m
+            give
+        }
+        i = i - 1
+        scanned = scanned + 1
+    }
+    a.history.push(["u": url, "t": title, "at": now, "n": 1])
+    if a.history.len() % 20 == 0 { state.save_history(a) }
+}

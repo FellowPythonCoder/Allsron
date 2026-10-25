@@ -1,0 +1,336 @@
+~~ =====================================================================
+~~  Sreon — pages
+~~  The pages that live inside Sreon: new tab, settings, history,
+~~  bookmarks, downloads, the Shield report, About and the error page.
+~~ =====================================================================
+module pages
+
+use std.time
+use std.json
+use kit
+use icons
+use settings
+use state
+use theme
+use omnibox
+use shield
+use views
+use studio
+use std.fs
+
+fn tips() -> [Text] {
+    give ["Press <kbd>⌘K</kbd> and type <b>25 * 4 + 10%</b> or <b>5 km in miles</b>. The answer appears before you press Enter.",
+          "Type <b>&gt;</b> in the bar to run any command, <b>@</b> to jump between tabs, <b>#</b> to search bookmarks.",
+          "<b>Brief</b> reads any page and gives you the point of it, in a second, without sending it anywhere.",
+          "Copy a link with <kbd>⇧⌘C</kbd> and Sreon strips the tracking from it first.",
+          "Put idle tabs to sleep from the tab menu. They free their memory and wake the moment you click them.",
+          "<b>Focus mode</b> blocks the sites you choose while the timer runs.",
+          "Open <b>Studio</b> to write and run SPRFST programs, with a guidebook and a whiteboard beside you.",
+          "Everything in <b>Settings</b> is yours to change: colours, corners, sidebar, shortcuts, even the Shield rules."]
+}
+
+fn greeting(s: Map<Text, Any>) -> Text {
+    let parts = time.parts(time.now())
+    let hour = kit.gi(parts_map(parts), "hour", 12)
+    var g = "Good evening"
+    if hour < 5 { g = "Still up" }
+    else if hour < 12 { g = "Good morning" }
+    else if hour < 18 { g = "Good afternoon" }
+    let name = settings.str(s, "name").trim()
+    if name != "" { give g + ", " + kit.esc(name) }
+    give g
+}
+
+fn parts_map(p: Map<Text, Int>) -> Map<Text, Any> {
+    var m: Map<Text, Any> = [:]
+    for k in p.keys() { m.set(k, p.get(k) ?? 0) }
+    give m
+}
+
+fn dock_base() -> [[Text]] {
+    give [["code", "Studio", "sreon://studio"], ["book", "Guidebook", "sreon://studio?tab=guide"], ["board", "Whiteboard", "sreon://studio?tab=board"],
+          ["tools", "Tools", "sreon://studio?tab=tools"], ["shield", "Shield", "sreon://shield"], ["bookmark", "Bookmarks", "sreon://bookmarks"],
+          ["history", "History", "sreon://history"], ["download", "Downloads", "sreon://downloads"], ["gear", "Settings", "sreon://settings"]]
+}
+
+fn dock_open(a: state.App, url: Text) -> Bool {
+    for t in a.tabs {
+        if t.url == url { give true }
+        if url.contains("?") and t.url.starts_with(url) { give true }
+        if not url.contains("?") and t.url.starts_with(url + "?") and url != "sreon://studio" { give true }
+        if url == "sreon://studio" and (t.url == "sreon://studio" or t.url.starts_with("sreon://studio?tab=code")) { give true }
+    }
+    give false
+}
+
+fn dock_btn(a: state.App, icon: Text, label: Text, url: Text) -> Text {
+    give "<button class=\"dk\"" + views.act("open", ["url": url, "where": "here"]) + " title=\"" + kit.esc(label) + "\"><span class=\"dk-i\">" + icons.svg(icon) + "</span><span class=\"dk-n\">" + kit.esc(label) + "</span><i class=\"dk-dot" + kit.sel(dock_open(a, url), " on", "") + "\"></i></button>"
+}
+
+fn dock(a: state.App) -> Text {
+    var h = "<nav class=\"nt-dock\">"
+    for e in dock_base() { h = h + dock_btn(a, e[0], e[1], e[2]) }
+    var mine = studio.my_apps()
+    if mine.len() > 0 {
+        h = h + "<i class=\"dk-sep\"></i>"
+        var n = 0
+        for f in mine {
+            if n >= 4 { break }
+            h = h + dock_btn(a, "play", studio.app_title(f), "sreon://studio?tab=code&open=" + f.replace(" ", "%20"))
+            n = n + 1
+        }
+    }
+    give h + "</nav>"
+}
+
+pub fn newtab(a: state.App) -> Text {
+    let s = a.s
+    var b = "<div class=\"nt\"><div class=\"stars\"></div>"
+    b = b + "<header class=\"nt-strip\"><span class=\"nt-os\">" + icons.mark(18) + "<b>Sreon</b></span><span class=\"grow\"></span>"
+    if settings.flag(s, "nt_stats") {
+        b = b + "<button class=\"nt-chip nt-btn\"" + views.act("open", ["url": "sreon://shield", "where": "here"]) + " title=\"Open Shield\">" + icons.svg("shield") + a.book.network.to_text() + " rules</button>"
+        b = b + "<span class=\"nt-chip\">" + icons.svg("tabs") + a.tabs.len().to_text() + " open</span>"
+    }
+    b = b + "<span class=\"nt-chip\" data-date=\"1\"></span></header>"
+    b = b + "<main class=\"nt-main\">"
+    if settings.flag(s, "nt_clock") {
+        b = b + "<div class=\"clock\" data-clock=\"" + kit.sel(settings.flag(s, "clock_24h"), "24", "12") + "\">--:--</div>"
+    }
+    b = b + "<div class=\"hello\">" + greeting(s) + "</div>"
+    if settings.flag(s, "nt_search") {
+        b = b + "<div class=\"nt-search\">" + icons.svg("search") + "<input type=\"text\" id=\"nts\" placeholder=\"Search or type an address\" autofocus autocomplete=\"off\" spellcheck=\"false\" data-enter=\"nt.go\"></div>"
+    }
+    if settings.flag(s, "nt_dial") {
+        b = b + "<div class=\"dial\">"
+        for line in settings.str(s, "dial").lines() {
+            let bar = line.index_of("|")
+            if bar < 0 { skip }
+            let name = line.slice(0, bar).trim()
+            let url = line.slice(bar + 1, line.len()).trim()
+            if name == "" or url == "" { skip }
+            b = b + "<a" + views.act("open", ["url": url, "where": "here"]) + ">" + views.fav(url, true).replace("fav lg", "fav") + "<span>" + kit.esc(name) + "</span></a>"
+        }
+        b = b + "</div>"
+    }
+    if settings.flag(s, "nt_tip") {
+        let all = tips()
+        let i = (to_int(time.now()) / 3600) % all.len()
+        b = b + "<div class=\"tip\">" + all[i] + "</div>"
+    }
+    b = b + "</main>"
+    if settings.flag(s, "nt_dock") { b = b + dock(a) }
+    b = b + "<div class=\"powered\">" + icons.spf_mark(14) + "<span>Powered by SPRFST Language</span></div></div>"
+    give theme.document(s, "newtab", "New tab", "", "", b, "")
+}
+
+~~ ---------------------------------------------------------- settings
+fn accent_presets() -> [[Text]] {
+    give [["#8c9bff", "#5fe3ff"], ["#3b82f6", "#22d3ee"], ["#34d399", "#a3e635"], ["#fb7185", "#f0abfc"], ["#fb923c", "#fbbf24"],
+          ["#9ca3af", "#e5e7eb"], ["#ef4444", "#f97316"], ["#14b8a6", "#38bdf8"], ["#c084fc", "#f472b6"], ["#6366f1", "#a78bfa"]]
+}
+
+pub fn control(a: state.App, d: settings.Def) -> Text {
+    let v = a.s.get(d.key) ?? d.fallback
+    let attr = "data-a=\"" + kit.jattr(["key": d.key]) + "\""
+    if d.kind == "toggle" { give views.switch_html("set", d.key, kit.gb(a.s, d.key, false)) }
+    if d.kind == "choice" {
+        if d.key == "theme" {
+            var h = "<div class=\"themes\">"
+            for p in theme.palettes() {
+                h = h + "<button class=\"theme" + kit.sel(settings.str(a.s, "theme") == p.name, " on", "") + "\"" + views.act("set", ["key": "theme", "value": p.name]) + "><div class=\"pv\" style=\"background:" + p.bg + "\"><i style=\"background:" + p.surface + "\"></i><i style=\"background:" + p.surface2 + "\"></i><i style=\"background:linear-gradient(135deg," + p.accent + "," + p.accent2 + ")\"></i></div><div class=\"nm\">" + p.name + "</div></button>"
+            }
+            h = h + "<button class=\"theme" + kit.sel(settings.str(a.s, "theme") == "auto", " on", "") + "\"" + views.act("set", ["key": "theme", "value": "auto"]) + "><div class=\"pv\" style=\"background:linear-gradient(90deg,#0a0a10 50%,#f6f6f9 50%)\"></div><div class=\"nm\">auto</div></button></div>"
+            give h
+        }
+        if d.options.len() <= 3 {
+            var h = "<div class=\"seg\">"
+            for o in d.options {
+                h = h + "<button" + kit.sel(to_text(v) == o, " class=\"on\"", "") + views.act("set", ["key": d.key, "value": o]) + ">" + o + "</button>"
+            }
+            give h + "</div>"
+        }
+        var h = "<select data-change=\"set\" " + attr + ">"
+        for o in d.options { h = h + "<option value=\"" + o + "\"" + kit.sel(to_text(v) == o, " selected", "") + ">" + o + "</option>" }
+        give h + "</select>"
+    }
+    if d.kind == "range" {
+        give "<input type=\"range\" min=\"" + d.lo.to_text() + "\" max=\"" + d.hi.to_text() + "\" value=\"" + to_text(v) + "\" data-input=\"set.live\" data-wait=\"20\" data-change=\"set\" " + attr + "><span class=\"val\" data-region=\"v_" + d.key + "\">" + to_text(v) + "</span>"
+    }
+    if d.kind == "color" {
+        var h = "<div class=\"swatches\">"
+        if d.key == "accent" {
+            for pr in accent_presets() {
+                h = h + "<span class=\"sw" + kit.sel(settings.str(a.s, "accent") == pr[0], " on", "") + "\" style=\"background:linear-gradient(135deg," + pr[0] + "," + pr[1] + ")\"" + views.act("accent.preset", ["a": pr[0], "b": pr[1]]) + "></span>"
+            }
+        }
+        h = h + "<input type=\"color\" value=\"" + to_text(v) + "\" data-change=\"set\" " + attr + "></div>"
+        give h
+    }
+    if d.kind == "area" {
+        give "<textarea data-input=\"set.text\" data-wait=\"500\" " + attr + " spellcheck=\"false\">" + kit.esc(to_text(v)) + "</textarea>"
+    }
+    give "<input type=\"text\" value=\"" + kit.esc(to_text(v)) + "\" data-input=\"set.text\" data-wait=\"400\" " + attr + " spellcheck=\"false\">"
+}
+
+fn row(a: state.App, d: settings.Def) -> Text {
+    let tall = d.kind == "area" or (d.kind == "choice" and d.key == "theme")
+    var h = "<div class=\"setrow" + kit.sel(tall, " tall", "") + "\"><div class=\"lab\"><b>" + kit.esc(d.label) + "</b>"
+    if d.hint != "" { h = h + "<span>" + kit.esc(d.hint) + "</span>" }
+    h = h + "</div><div class=\"ctl\">" + control(a, d) + "</div></div>"
+    give h
+}
+
+fn keys_block(a: state.App) -> Text {
+    var h = "<div class=\"grp\"><div class=\"grp-h\">Keyboard shortcuts</div>"
+    for ac in settings.actions() {
+        let cur = to_text(a.keys.get(ac[0]) ?? ac[2])
+        h = h + "<div class=\"keyrow\"><span class=\"grow\">" + ac[1] + "</span><input type=\"text\" value=\"" + kit.esc(cur) + "\" placeholder=\"cmd+shift+x\" data-change=\"keys.set\" data-a=\"" + kit.jattr(["id": ac[0]]) + "\" spellcheck=\"false\"></div>"
+    }
+    h = h + "</div><div class=\"row\"><button class=\"btn\"" + views.act("keys.reset", [:]) + ">Restore default shortcuts</button><span class=\"small muted\">Write them like  cmd+shift+t  or  ctrl+tab</span></div>"
+    give h
+}
+
+pub fn settings_body(a: state.App, group: Text) -> Text {
+    var h = ""
+    if group == "keys" { h = keys_block(a) }
+    else {
+        var title = group
+        for g in settings.groups() { if g[0] == group { title = g[1] } }
+        h = "<div class=\"grp\"><div class=\"grp-h\">" + title + "</div>"
+        for d in settings.defs() { if d.group == group { h = h + row(a, d) } }
+        h = h + "</div>"
+        if group == "advanced" {
+            h = h + "<div class=\"row wrap\"><button class=\"btn\"" + views.act("settings.export", [:]) + ">Copy settings</button><button class=\"btn\"" + views.act("settings.import", [:]) + ">Paste settings</button><button class=\"btn danger\"" + views.act("settings.reset", [:]) + ">Reset everything</button></div>"
+            h = h + "<div class=\"powered\" style=\"padding-top:2rem\">" + icons.spf_mark(16) + "<span>Sreon " + kit.version() + " · Powered by SPRFST Language · all data stays in " + kit.esc(store_dir()) + "</span></div>"
+        }
+    }
+    give h
+}
+
+fn store_dir() -> Text => "~/Library/Application Support/Sreon"
+
+pub fn settings_page(a: state.App, group: Text) -> Text {
+    var nav = "<div class=\"set-nav\"><div class=\"brand\" style=\"padding:.2rem .75rem 1rem\">" + icons.mark(26) + "<span>Settings</span></div>"
+    for g in settings.groups() {
+        nav = nav + "<button" + kit.sel(g[0] == group, " class=\"on\"", "") + views.act("settings.group", ["g": g[0]]) + "><span class=\"gl\">" + views.ic(g[2]) + "</span>" + g[1] + "</button>"
+    }
+    nav = nav + "</div>"
+    let b = "<div class=\"page\" style=\"max-width:1060px\"><div class=\"set-wrap\"><div data-region=\"nav\">" + nav + "</div><div data-region=\"body\">" + settings_body(a, group) + "</div></div></div>"
+    give theme.document(a.s, "settings", "Settings", "", "", b, "")
+}
+
+~~ ------------------------------------------------------------ history
+fn day_label(t: Num) -> Text {
+    let today = time.format(time.now(), "%Y-%m-%d")
+    let that = time.format(t, "%Y-%m-%d")
+    if today == that { give "Today" }
+    if time.format(time.now() - 86400.0, "%Y-%m-%d") == that { give "Yesterday" }
+    give time.format(t, "%A, %B %d")
+}
+
+pub fn history_list(a: state.App, q: Text) -> Text {
+    let words = kit.words_of(q.lower())
+    var h = ""
+    var last = ""
+    var shown = 0
+    var i = a.history.len() - 1
+    while i >= 0 and shown < 300 {
+        let m: Map<Text, Any> = a.history[i]
+        i = i - 1
+        let title = kit.gt(m, "t")
+        let url = kit.gt(m, "u")
+        var ok = true
+        let hay = (title + " " + url).lower()
+        for w in words { if not hay.contains(w) { ok = false } }
+        if not ok { skip }
+        let at = kit.gn(m, "at", 0.0)
+        let d = day_label(at)
+        if d != last { h = h + "<div class=\"grp-h\" style=\"border-top:1px solid var(--line)\">" + kit.esc(d) + "</div>"; last = d }
+        h = h + "<div class=\"list-item\"" + views.act("open", ["url": url, "where": "here"]) + ">" + views.fav(url, false) + "<div class=\"grow\"><div class=\"t trunc\">" + kit.esc(state.brand_title(title, url)) + "</div><div class=\"s trunc\">" + kit.esc(omnibox.pretty_host(url)) + "</div></div><span class=\"when\">" + time.format(at, "%H:%M") + "</span></div>"
+        shown = shown + 1
+    }
+    if shown == 0 { give "<div class=\"empty\">Nothing here" + kit.sel(q != "", " matches.", " yet.") + "</div>" }
+    give h
+}
+
+pub fn history_page(a: state.App) -> Text {
+    var b = "<div class=\"page\"><div class=\"row\"><h1 class=\"grow\">History</h1><button class=\"btn danger\"" + views.act("history.clear", [:]) + ">Clear history</button></div>"
+    b = b + "<p class=\"lead\">Kept on this Mac only. Suggestions in the bar come from here.</p><div style=\"position:relative;margin-bottom:1rem\"><input class=\"search-big\" type=\"text\" placeholder=\"Search history\" data-input=\"history.q\" data-wait=\"80\" autofocus></div>"
+    b = b + "<div class=\"grp\" data-region=\"list\">" + history_list(a, "") + "</div></div>"
+    give theme.document(a.s, "history", "History", "", "", b, "")
+}
+
+pub fn bookmarks_list(a: state.App) -> Text {
+    if a.bookmarks.len() == 0 { give "<div class=\"empty\">" + icons.svg("star") + "<p>No bookmarks yet. Press the star in the toolbar.</p></div>" }
+    var h = ""
+    var i = a.bookmarks.len() - 1
+    while i >= 0 {
+        let m: Map<Text, Any> = a.bookmarks[i]
+        let url = kit.gt(m, "u")
+        h = h + "<div class=\"list-item\"" + views.act("open", ["url": url, "where": "here"]) + ">" + views.fav(url, false) + "<div class=\"grow\"><div class=\"t trunc\">" + kit.esc(kit.gt(m, "t")) + "</div><div class=\"s trunc\">" + kit.esc(omnibox.pretty_host(url)) + "</div></div><button class=\"ib\"" + views.act("bookmark.remove", ["u": url]) + " title=\"Remove\">" + icons.svg("trash") + "</button></div>"
+        i = i - 1
+    }
+    give h
+}
+
+pub fn bookmarks_page(a: state.App) -> Text {
+    let b = "<div class=\"page\"><h1>Bookmarks</h1><p class=\"lead\">Search them from the bar with <kbd>#</kbd>.</p><div class=\"grp\" data-region=\"list\">" + bookmarks_list(a) + "</div></div>"
+    give theme.document(a.s, "bookmarks", "Bookmarks", "", "", b, "")
+}
+
+pub fn downloads_list(a: state.App) -> Text {
+    if a.downloads.len() == 0 { give "<div class=\"empty\">" + icons.svg("download") + "<p>Files you download appear here.</p></div>" }
+    var h = ""
+    var i = a.downloads.len() - 1
+    while i >= 0 {
+        let m: Map<Text, Any> = a.downloads[i]
+        h = h + "<div class=\"list-item\"" + views.act("download.show", ["path": kit.gt(m, "path")]) + ">" + icons.svg("file") + "<div class=\"grow\"><div class=\"t trunc\">" + kit.esc(kit.gt(m, "name")) + "</div><div class=\"s trunc\">" + kit.esc(kit.gt(m, "state")) + " · " + kit.esc(kit.gt(m, "from")) + "</div></div></div>"
+        i = i - 1
+    }
+    give h
+}
+
+pub fn downloads_page(a: state.App) -> Text {
+    let b = "<div class=\"page\"><h1>Downloads</h1><p class=\"lead\">Click a file to show it in Finder.</p><div class=\"grp\" data-region=\"list\">" + downloads_list(a) + "</div></div>"
+    give theme.document(a.s, "downloads", "Downloads", "", "", b, "")
+}
+
+~~ ------------------------------------------------------------- shield
+pub fn shield_page(a: state.App) -> Text {
+    var b = "<div class=\"page\"><div class=\"about-hero\" style=\"padding-bottom:.5rem\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"url(#g)\" stroke-width=\"1.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"width:84px;height:84px\"><defs><linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"" + settings.str(a.s, "accent") + "\"/><stop offset=\"1\" stop-color=\"" + settings.str(a.s, "accent2") + "\"/></linearGradient></defs><path d=\"M12 3l7 3v5c0 5-3 8.500-7 10-4-1.500-7-5-7-10V6z\"/><path d=\"M9 12l2 2 4-4\"/></svg><h1 style=\"font-size:2.4rem\">Shield</h1><p class=\"lead\" style=\"margin:0\">Blocks before it loads. Nothing is hidden after the fact, and nothing is counted that did not really happen.</p></div>"
+    b = b + "<div class=\"grid3\"><div class=\"card feat\"><b>" + a.book.network.to_text() + " network rules</b><span>Ad networks, trackers, miners and social widgets are refused by the web engine before a single byte is requested.</span></div>"
+    b = b + "<div class=\"card feat\"><b>" + a.book.cosmetic.to_text() + " page cleaners</b><span>Consent banners, newsletter pop-ups and chat bubbles are removed from the page itself.</span></div>"
+    b = b + "<div class=\"card feat\"><b>Links, cleaned</b><span>" + a.cleaned.to_text() + " tracking parameters removed from addresses this session, and " + a.upgrades.to_text() + " sites upgraded to HTTPS.</span></div></div>"
+    b = b + "<h2>Protection</h2><div class=\"grp\">"
+    for d in settings.defs() { if d.group == "shield" and d.kind != "area" { b = b + row(a, d) } }
+    b = b + "</div><h2>Your lists</h2><div class=\"grp\">"
+    for d in settings.defs() { if d.group == "shield" and d.kind == "area" { b = b + row(a, d) } }
+    b = b + "</div><p class=\"small muted\">Rules use a simple format. <code>||ads.example.com^</code> blocks a domain, <code>example.com##.banner</code> hides an element on one site.</p></div>"
+    give theme.document(a.s, "shield", "Shield", "", "", b, "")
+}
+
+~~ -------------------------------------------------------------- about
+pub fn about_page(a: state.App) -> Text {
+    var b = "<div class=\"page\"><div class=\"about-hero\">" + icons.mark(110) + "<h1>Sreon</h1><p class=\"lead\" style=\"margin:0\">Version " + kit.version() + " · A calm, fast browser for your Mac.</p></div>"
+    b = b + "<div class=\"grid3\">"
+    for f in [["Fast by design", "Pages are drawn by WebKit, the engine built into macOS. Blocking happens inside it, before requests are made, and idle tabs sleep."],
+              ["Quiet by default", "Shield removes ads, trackers, cookie banners and pop-ups. History, notes and settings never leave this Mac."],
+              ["Yours to shape", "Themes, accent colours, corners, the sidebar, shortcuts and block rules are all settings."],
+              ["Answers in the bar", "Sums, conversions and commands resolve as you type. Brief turns any page into its point."],
+              ["A workshop inside", "Studio is a full code editor and compiler with a guidebook, a whiteboard and a drawer of tools."],
+              ["Built on SPRFST", "The browser's brain, its blocker, its pages and its tools are written in the SPRFST programming language."]] {
+        b = b + "<div class=\"card feat\"><b>" + f[0] + "</b><span>" + f[1] + "</span></div>"
+    }
+    b = b + "</div><div class=\"powered\" style=\"justify-content:center\">" + icons.spf_mark(18) + "<span>Powered by SPRFST Language</span></div></div>"
+    give theme.document(a.s, "about", "About Sreon", "", "", b, "")
+}
+
+pub fn error_page(a: state.App, url: Text, reason: Text) -> Text {
+    var b = "<div class=\"err\">" + icons.mark(70) + "<h1>This page did not load</h1><p class=\"muted\">" + kit.esc(reason) + "</p><p class=\"small faint\">" + kit.esc(kit.truncate(url, 90)) + "</p><br><div class=\"row\" style=\"justify-content:center\"><button class=\"btn primary\"" + views.act("open", ["url": url, "where": "here"]) + ">Try again</button><button class=\"btn\"" + views.act("open", ["url": "sreon://newtab", "where": "here"]) + ">New tab</button></div></div>"
+    give theme.document(a.s, "error", "Page did not load", "", "", b, "")
+}
+
+pub fn blocked_page(a: state.App, host: Text) -> Text {
+    var b = "<div class=\"err\">" + icons.svg("shield").replace("class=\"i\"", "class=\"i\" style=\"width:60px;height:60px;color:var(--accent)\"") + "<h1>Blocked by Focus</h1><p class=\"muted\">" + kit.esc(host) + " is on your focus list. Back to it when the timer ends.</p><br><button class=\"btn\"" + views.act("focus.off", [:]) + ">End focus mode</button></div>"
+    give theme.document(a.s, "blocked", "Blocked", "", "", b, "")
+}

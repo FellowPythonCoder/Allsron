@@ -1,0 +1,66 @@
+~~ Engine tests.  Run:  tools/test.sh   (or  sprfst test engine/tests.spf)
+use std.testing
+use calc
+use units
+use omnibox
+use hl
+use guide
+use studio
+use tools
+use kit
+
+test "calculator" {
+    testing.same(calc.evaluate("12*(3+4)").text, "84", "sum")
+    testing.same(calc.evaluate("200 + 10%").text, "220", "percent")
+    testing.same(calc.evaluate("20% of 150").text, "30", "percent of")
+    testing.yes(calc.evaluate("sqrt(16)").ok, "function")
+    testing.no(calc.evaluate("2 +").ok, "incomplete")
+}
+
+test "units" {
+    testing.yes(units.answer("5 km in miles").ok, "length")
+    testing.yes(units.answer("72 f to c").ok, "temperature")
+    testing.no(units.convert("hello world").ok, "plain words")
+}
+
+test "links lose their tracking" {
+    testing.same(omnibox.clean_url("https://example.com/a?utm_source=x&id=7"), "https://example.com/a?id=7", "utm")
+}
+
+test "text helpers" {
+    testing.same(kit.host_of("https://www.example.com/a/b"), "www.example.com", "host")
+    testing.same(kit.site_of("https://www.example.com/a"), "example.com", "site")
+    testing.same(kit.esc("<a href=\"x\">"), "&lt;a href=&quot;x&quot;&gt;", "escape")
+    testing.same(kit.idiv(7, 2), 3, "integer division")
+}
+
+test "the highlighter colours keywords and strings" {
+    let h = hl.html(r"""fn main() { let x = "hi" }""")
+    testing.yes(h.contains("<i class=\"k\">fn</i>"), "keyword")
+    testing.yes(h.contains("<i class=\"s\">"), "string")
+}
+
+test "guidebook renders every chapter" {
+    let chapters = guide.chapters()
+    testing.same(chapters.len(), 32, "thirty-two chapters")
+    for c in chapters { testing.yes(guide.render(c).len() > 200, "chapter " + c.n.to_text()) }
+}
+
+test "tools" {
+    testing.yes(tools.run("json", "pretty", r"""{"a":1}""").contains("&quot;a&quot;"), "json")
+    testing.yes(tools.run("hash", "sha256", "abc").contains("ba7816bf"), "sha256")
+    testing.yes(tools.run("color", "", "#ffffff").contains("rgb(255, 255, 255)"), "colour")
+    testing.yes(tools.run("diff", "", "a\n---\nb").contains("1 added, 1 removed"), "diff")
+}
+
+test "apps are told apart from plain programs" {
+    testing.yes(studio.is_app("app \"A\" \{\n\}\n"), "starts with app")
+    testing.yes(studio.is_app("use std.io\n\napp \"A\" \{\n\}\n"), "app later in the file")
+    testing.no(studio.is_app("use std.io\nfn main() \{ io.say(1) \}\n"), "plain program")
+}
+
+test "the new chapters are there" {
+    testing.same(guide.chapter(31).title, "Asking questions", "chapter 31")
+    testing.same(guide.chapter(32).title, "Making an app", "chapter 32")
+}
+

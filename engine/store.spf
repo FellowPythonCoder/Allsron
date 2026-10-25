@@ -1,0 +1,64 @@
+~~ =====================================================================
+~~  Sreon — store
+~~
+~~  Everything Sreon remembers lives in plain JSON files in one folder.
+~~  Nothing is sent anywhere. Delete the folder and Sreon forgets you.
+~~ =====================================================================
+module store
+
+use std.fs
+use std.json
+use std.path
+use std.sys
+
+pub fn data_dir() -> Text {
+    let home = sys.env("SREON_HOME") ?? ""
+    if home != "" { give home }
+    let user = sys.env("HOME") ?? "."
+    give user + "/.sreon"
+}
+
+pub fn res_dir() -> Text {
+    let r = sys.env("SREON_RES") ?? ""
+    if r != "" { give r }
+    give "."
+}
+
+pub fn file_of(name: Text) -> Text => data_dir() + "/" + name + ".json"
+
+pub fn ensure() {
+    fs.mkdir(data_dir())
+    fs.mkdir(data_dir() + "/boards")
+}
+
+pub fn read(name: Text) -> Any? {
+    let text = fs.read(file_of(name))
+    if text == nil { give nil }
+    give json.parse(text ?? "")
+}
+
+pub fn read_map(name: Text) -> Map<Text, Any> {
+    let v = read(name)
+    if v == nil { give [:] }
+    let m: Map<Text, Any> = v ?? [:]
+    give m
+}
+
+pub fn read_list(name: Text) -> [Any] {
+    let v = read(name)
+    if v == nil { give [] }
+    let l: [Any] = v ?? []
+    give l
+}
+
+pub fn write(name: Text, value: Any) {
+    ensure()
+    let tmp = file_of(name) + ".tmp"
+    if fs.write(tmp, json.write(value)) {
+        fs.rename(tmp, file_of(name))
+    }
+}
+
+pub fn remove(name: Text) {
+    fs.remove(file_of(name))
+}

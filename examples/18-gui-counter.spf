@@ -1,0 +1,40 @@
+~~ A declarative window. The UI rebuilds itself when state changes.
+~~ Run it with:  sprfst run 18-gui-counter.spf
+use std.io
+
+app "Counter" {
+    var count = 0
+    var step = 1
+
+    window {
+        title: "SPRFST Counter"
+        width: 420
+        height: 280
+
+        title "Count is {count}"
+        divider
+        button "Add {step}" {
+            on click {
+                count = count + step
+            }
+        }
+        button "Take {step}" {
+            on click {
+                count = count - step
+            }
+        }
+        button "Bigger steps" {
+            on click {
+                step = step * 2
+            }
+        }
+        button "Reset" {
+            on click {
+                count = 0
+                step = 1
+            }
+        }
+        divider
+        text "built with SPRFST"
+    }
+}

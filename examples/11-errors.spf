@@ -1,0 +1,45 @@
+~~ Results, failures and recovery.
+use std.io
+
+fn parse_age(text: Text) -> Result<Int> {
+    let n = text.to_int()
+    if n == nil { give Err("'{text}' is not a number") }
+    let age = n ?? 0
+    if age < 0 { give Err("an age cannot be negative") }
+    if age > 150 { give Err("{age} is too old to be true") }
+    give Ok(age)
+}
+
+fn average(values: [Int]) -> Result<Num> {
+    if values.is_empty() { give Err("no values to average") }
+    give Ok(values.sum() / values.len())
+}
+
+fn risky(n: Int) -> Int {
+    if n == 13 { fail "unlucky number" }
+    give n
+}
+
+fn main() {
+    for text in ["34", "abc", "-2", "900"] {
+        match parse_age(text) {
+            when Ok(age) -> io.say("{text} -> age {age}")
+            when Err(why) -> io.say("{text} -> problem: {why}")
+        }
+    }
+
+    match average([2, 4, 6]) {
+        when Ok(a) -> io.say("average is {a}")
+        when Err(e) -> io.say(e)
+    }
+
+    try {
+        io.say("fine: {risky(5)}")
+        io.say("never reached: {risky(13)}")
+    } catch problem {
+        io.say("recovered from: {problem}")
+    }
+
+    let safe = parse_age("abc") ?? 0
+    io.say("fallback age {safe}")
+}

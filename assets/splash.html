@@ -1,0 +1,81 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark">
+<style>
+:root{--ease:cubic-bezier(.2,.8,.2,1);--a:#8b7cff;--b:#4fd1ff}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:transparent;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none;cursor:default}
+.win{position:absolute;inset:0;border-radius:22px;overflow:hidden;background:radial-gradient(120% 90% at 50% 0%,#14122e 0%,#090a18 55%,#04040b 100%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);animation:enter .5s var(--ease) both}
+.stars i{position:absolute;width:2px;height:2px;border-radius:50%;background:#fff;opacity:0;animation:tw 3.2s ease-in-out infinite}
+.glow{position:absolute;left:50%;top:41%;width:340px;height:340px;margin:-170px 0 0 -170px;border-radius:50%;background:radial-gradient(closest-side,rgba(122,108,255,.34),rgba(79,209,255,.08) 55%,transparent 72%);opacity:0;animation:glow 1.4s ease .1s forwards,breathe 3.4s ease-in-out 1.5s infinite}
+.core{position:absolute;left:0;right:0;top:46px;display:flex;flex-direction:column;align-items:center}
+svg.mk{width:150px;height:150px;overflow:visible;transform-origin:50% 50%}
+.planet{transform-origin:64px 64px;transform:scale(.4);opacity:0;animation:planet .9s var(--ease) .2s forwards}
+.ring{fill:none;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:1}
+.ring.b{stroke-width:5;opacity:0;animation:ringb .5s ease .9s forwards}
+.ring.f{stroke-width:5.5;opacity:0;animation:draw 1s cubic-bezier(.65,0,.25,1) .55s forwards}
+.moon{opacity:0;animation:fadein .4s ease 1.4s forwards}
+.tag{position:absolute;left:0;right:0;top:238px;text-align:center}
+.word{display:flex;justify-content:center;gap:.34em;font-size:26px;font-weight:600;color:#f3f3f8;padding-left:.34em}
+.word span{display:inline-block;opacity:0;transform:translateY(10px);filter:blur(6px);animation:letter .7s var(--ease) forwards}
+.word span:nth-child(1){animation-delay:1.0s}.word span:nth-child(2){animation-delay:1.07s}.word span:nth-child(3){animation-delay:1.14s}.word span:nth-child(4){animation-delay:1.21s}.word span:nth-child(5){animation-delay:1.28s}
+.pw{margin-top:9px;display:inline-flex;align-items:center;gap:7px;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:#6c6c84;opacity:0;animation:rise .6s ease 1.5s forwards}
+.pw svg{width:10px;height:10px}
+.foot{position:absolute;left:34px;right:34px;bottom:26px;opacity:0;animation:fadein .5s ease 1.2s forwards}
+.log{height:15px;margin-bottom:9px;font:11px/15px ui-monospace,"SF Mono",Menlo,monospace;color:#8a8aa2;display:flex;justify-content:space-between}
+.log b{font-weight:400;color:#c9c9dc;transition:opacity .25s}
+.log em{font-style:normal;color:#5c5c72}
+.bar{height:2px;border-radius:2px;background:rgba(255,255,255,.07);overflow:hidden}
+.bar i{display:block;height:100%;width:0;border-radius:2px;background:linear-gradient(90deg,var(--a),var(--b));box-shadow:0 0 12px rgba(122,108,255,.7);transition:width .5s cubic-bezier(.4,0,.2,1)}
+body.ready .bar i{width:100%!important}
+body.ready .glow{animation:burst .7s ease forwards}
+body.out .win{animation:leave .4s cubic-bezier(.4,0,.6,1) forwards}
+@keyframes enter{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+@keyframes tw{0%,100%{opacity:0}50%{opacity:.8}}
+@keyframes glow{to{opacity:1}}
+@keyframes breathe{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.1);opacity:.78}}
+@keyframes burst{0%{transform:scale(1);opacity:1}45%{transform:scale(1.5);opacity:1}100%{transform:scale(1.2);opacity:.55}}
+@keyframes planet{0%{opacity:0;transform:scale(.4)}60%{opacity:1;transform:scale(1.06)}100%{opacity:1;transform:scale(1)}}
+@keyframes draw{from{opacity:1;stroke-dashoffset:1}to{opacity:1;stroke-dashoffset:0}}
+@keyframes ringb{to{opacity:.55}}
+@keyframes fadein{to{opacity:1}}
+@keyframes letter{to{opacity:1;transform:none;filter:none}}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes leave{to{opacity:0;transform:scale(1.035)}}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01s!important;animation-delay:0s!important}}
+</style></head><body>
+<div class="win">
+<div class="stars" id="stars"></div>
+<div class="glow"></div>
+<div class="core">
+<svg class="mk" viewBox="0 0 128 128" fill="none"><defs>
+<radialGradient id="pl" cx="38%" cy="32%" r="78%"><stop offset="0" stop-color="#fff"/><stop offset=".28" stop-color="#b9f0ff"/><stop offset=".62" stop-color="#7a6cff"/><stop offset="1" stop-color="#2b1f86"/></radialGradient>
+<linearGradient id="rg" x1="12" y1="84" x2="116" y2="44" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#8b7cff"/><stop offset=".55" stop-color="#4fd1ff"/><stop offset="1" stop-color="#f4fbff"/></linearGradient></defs>
+<g transform="rotate(-24 64 64)">
+<ellipse class="ring b" pathLength="1" cx="64" cy="64" rx="47" ry="15.5" stroke="url(#rg)" style="stroke-dasharray:none;stroke-dashoffset:0"/>
+<g class="moon"><circle r="3.4" fill="#fff" opacity="0"><animateMotion dur="4.2s" repeatCount="indefinite" begin="1.4s" path="M111 64A47 15.5 0 0 1 17 64A47 15.5 0 0 1 111 64"/><animate attributeName="opacity" dur="4.2s" repeatCount="indefinite" begin="1.4s" calcMode="discrete" values="0;0;.9;.9" keyTimes="0;.5;.5;1"/></circle></g>
+</g>
+<g class="planet"><circle cx="64" cy="64" r="21" fill="url(#pl)"/></g>
+<g transform="rotate(-24 64 64)">
+<path class="ring f" pathLength="1" d="M17 64A47 15.5 0 0 0 111 64" stroke="url(#rg)"/>
+<g class="moon"><circle r="3.4" fill="#fff" opacity="0"><animateMotion dur="4.2s" repeatCount="indefinite" begin="1.4s" path="M111 64A47 15.5 0 0 1 17 64A47 15.5 0 0 1 111 64"/><animate attributeName="opacity" dur="4.2s" repeatCount="indefinite" begin="1.4s" calcMode="discrete" values=".95;.95;0;0" keyTimes="0;.5;.5;1"/></circle></g>
+</g>
+</svg>
+</div>
+<div class="tag"><div class="word"><span>S</span><span>R</span><span>E</span><span>O</span><span>N</span></div>
+<div class="pw"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z" fill="#FFA136"/></svg>Powered by SPRFST Language</div></div>
+<div class="foot"><div class="log"><b id="msg">starting the engine</b><em id="pct">0%</em></div><div class="bar"><i id="fill"></i></div></div>
+</div>
+<script>
+(function(){
+  var st=document.getElementById("stars"),h="";
+  for(var i=0;i<26;i++){var x=Math.random()*100,y=Math.random()*100,d=(Math.random()*3).toFixed(2),s=(2.4+Math.random()*2.4).toFixed(2);
+    h+='<i style="left:'+x.toFixed(1)+'%;top:'+y.toFixed(1)+'%;animation-delay:'+d+'s;animation-duration:'+s+'s"></i>';}
+  st.innerHTML=h;
+  var steps=[[0,"starting the engine",8],[480,"loading your settings",30],[1000,"arming Shield rules",58],[1550,"tuning the interface",82],[2050,"almost there",93]];
+  var msg=document.getElementById("msg"),pct=document.getElementById("pct"),fill=document.getElementById("fill"),done=false,timers=[];
+  function set(t,p){msg.style.opacity=0;setTimeout(function(){msg.textContent=t;msg.style.opacity=1},120);fill.style.width=p+"%";pct.textContent=p+"%";}
+  steps.forEach(function(s){timers.push(setTimeout(function(){if(!done)set(s[1],s[2]);},s[0]));});
+  window.sreonReady=function(){if(done)return;done=true;msg.textContent="ready";msg.style.opacity=1;pct.textContent="100%";document.body.classList.add("ready");};
+  window.fadeOut=function(){window.sreonReady();setTimeout(function(){document.body.classList.add("out");},260);};
+})();
+</script>
+</body></html>

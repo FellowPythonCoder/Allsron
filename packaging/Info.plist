@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleExecutable</key><string>Sreon</string>
+  <key>CFBundleIconFile</key><string>Sreon</string>
+  <key>CFBundleIdentifier</key><string>com.sreon.browser</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>Sreon</string>
+  <key>CFBundleDisplayName</key><string>Sreon</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>@VERSION@</string>
+  <key>CFBundleVersion</key><string>@BUILD@</string>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSSupportsAutomaticTermination</key><false/>
+  <key>NSSupportsSuddenTermination</key><false/>
+  <key>NSHumanReadableCopyright</key><string>Sreon. Powered by SPRFST Language.</string>
+  <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
+  <key>NSCameraUsageDescription</key><string>Websites you allow can use the camera.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Websites you allow can use the microphone.</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>Websites you allow can ask where you are.</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>Web address</string>
+      <key>CFBundleURLSchemes</key><array><string>http</string><string>https</string></array>
+    </dict>
+  </array>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>HTML document</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>LSItemContentTypes</key><array><string>public.html</string><string>public.xhtml</string></array>
+    </dict>
+  </array>
+</dict>
+</plist>

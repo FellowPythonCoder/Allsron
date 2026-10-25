@@ -1,0 +1,21 @@
+~~ Values, names and simple maths.
+use std.io
+
+fn main() {
+    let name = "Ada"          ~~ let is fixed
+    var age = 36              ~~ var can change
+    age = age + 1
+
+    io.say("{name} is {age}")
+
+    let pi = 3.14159
+    let radius = 2.0
+    io.say("a circle of radius {radius} has area {pi * radius * radius}")
+
+    let big = 1_000_000
+    io.say("a million is {big}")
+
+    let yes = true
+    let no = not yes
+    io.say("yes is {yes}, no is {no}")
+}
